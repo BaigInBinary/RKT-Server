@@ -1,16 +1,22 @@
 {
   "version": 2,
-  "builds": [
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "public": false,
+  "functions": {
+    "dist/index.js": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
     {
-      "src": "index.ts",
-      "use": "@vercel/node"
+      "source": "/(.*)",
+      "destination": "/dist/index.js"
     }
   ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "index.ts",
-      "methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
-    }
-  ]
+  "env": {
+    "DATABASE_URL": "@database_url",
+    "NODE_ENV": "production"
+  }
 }
