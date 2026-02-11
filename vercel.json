@@ -14,9 +14,5 @@
       "source": "/(.*)",
       "destination": "/dist/index.js"
     }
-  ],
-  "env": {
-    "DATABASE_URL": "mongodb+srv://usmanbaig1572_db_user:ZhVnBCW9QQuajZuS@cluster0.aevybig.mongodb.net/shopkeeper_db?retryWrites=true&w=majority",
-    "NODE_ENV": "production"
-  }
+  ]
 }
