@@ -7,7 +7,7 @@ exports.getSalesAnalytics = exports.createSale = exports.getAllSales = void 0;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const getAllSales = async () => {
     return await prisma_1.default.sale.findMany({
-        orderBy: { date: 'desc' },
+        orderBy: { date: "desc" },
     });
 };
 exports.getAllSales = getAllSales;

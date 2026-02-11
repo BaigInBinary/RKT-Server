@@ -7,7 +7,7 @@ exports.deleteCategory = exports.createCategory = exports.getAllCategories = voi
 const prisma_1 = __importDefault(require("../config/prisma"));
 const getAllCategories = async () => {
     return await prisma_1.default.category.findMany({
-        orderBy: { name: 'asc' },
+        orderBy: { name: "asc" },
     });
 };
 exports.getAllCategories = getAllCategories;
