@@ -1,10 +1,13 @@
-import express from "express";
-const app = express();
+import app from "./app";
 
-// Define your routes
-app.get("/", (req, res) => {
-  res.json({ message: "Hello from Express on Vercel!" });
-});
+const PORT = process.env.PORT || 5000;
 
-// Export the Express app
+// For local development
+if (process.env.NODE_ENV !== "production") {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+  });
+}
+
+// Export the Express app for Vercel serverless
 export default app;
