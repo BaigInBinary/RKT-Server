@@ -11,9 +11,6 @@
     "test": "jest --runInBand",
     "test:watch": "jest --watch --runInBand",
     "test:coverage": "jest --coverage --runInBand",
-    "prisma:generate": "prisma generate",
-    "prisma:db": "prisma db push",
-    "seed": "npx ts-node src/scripts/seed.ts"
   },
   "keywords": [],
   "author": "",
