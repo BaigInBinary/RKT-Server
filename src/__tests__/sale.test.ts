@@ -1,0 +1,114 @@
+import request from "supertest";
+import app from "../app";
+
+describe("Sale API", () => {
+  let createdItemId: string;
+  let createdSaleId: string;
+
+  // First, create an item to use in sales
+  beforeAll(async () => {
+    const itemResponse = await request(app)
+      .post("/api/items")
+      .send({
+        name: `Sale Test Item ${Date.now()}`,
+        sku: `SALE-SKU-${Date.now()}`,
+        category: "Electronics",
+        price: 50.0,
+        costPrice: 25.0,
+        quantity: 100,
+        minStock: 10,
+        supplier: "Test Supplier",
+      });
+
+    createdItemId = itemResponse.body.id;
+  });
+
+  describe("POST /api/sales", () => {
+    it("should create a new sale and update stock", async () => {
+      const saleData = {
+        items: [
+          {
+            itemId: createdItemId,
+            name: "Sale Test Item",
+            price: 50.0,
+            quantity: 2,
+            total: 100.0,
+          },
+        ],
+        subtotal: 100.0,
+        tax: 10.0,
+        discount: 5.0,
+        total: 105.0,
+        customerName: "Test Customer",
+      };
+
+      const response = await request(app).post("/api/sales").send(saleData);
+
+      expect(response.status).toBe(201);
+      expect(response.body).toHaveProperty("id");
+      expect(response.body.total).toBe(saleData.total);
+      expect(response.body.items).toHaveLength(1);
+      createdSaleId = response.body.id;
+
+      // Verify stock was updated
+      const itemResponse = await request(app).get(
+        `/api/items/${createdItemId}`,
+      );
+      expect(itemResponse.body.quantity).toBe(98); // 100 - 2
+    });
+  });
+
+  describe("GET /api/sales", () => {
+    it("should get all sales", async () => {
+      const response = await request(app).get("/api/sales");
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("GET /api/sales/analytics", () => {
+    it("should get sales analytics for a date range", async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + 1);
+
+      const response = await request(app).get("/api/sales/analytics").query({
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty("totalSales");
+      expect(response.body).toHaveProperty("totalRevenue");
+      expect(response.body).toHaveProperty("sales");
+      expect(response.body.totalSales).toBeGreaterThan(0);
+    });
+
+    it("should return empty analytics for future date range", async () => {
+      const startDate = new Date();
+      startDate.setFullYear(startDate.getFullYear() + 1);
+      const endDate = new Date();
+      endDate.setFullYear(endDate.getFullYear() + 2);
+
+      const response = await request(app).get("/api/sales/analytics").query({
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.body.totalSales).toBe(0);
+      expect(response.body.totalRevenue).toBe(0);
+    });
+  });
+
+  // Cleanup
+  afterAll(async () => {
+    // Delete the test item
+    if (createdItemId) {
+      await request(app).delete(`/api/items/${createdItemId}`);
+    }
+  });
+});
