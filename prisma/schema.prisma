@@ -38,9 +38,20 @@ model Item {
 }
 
 model Category {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  name      String   @unique
-  createdAt DateTime @default(now())
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
+  name          String        @unique
+  subCategories SubCategory[]
+  createdAt     DateTime      @default(now())
+}
+
+model SubCategory {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  name       String
+  categoryId String   @db.ObjectId
+  category   Category @relation(fields: [categoryId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@unique([name, categoryId])
 }
 
 model Sale {
@@ -62,4 +73,3 @@ type SaleItem {
   quantity Int
   total    Float
 }
-
