@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { Prisma } from "@prisma/client";
+import multer from "multer";
 
 export interface AppError extends Error {
   statusCode?: number;
@@ -42,6 +43,20 @@ export const errorHandler = (
     return res.status(400).json({
       success: false,
       message: "Invalid data provided",
+    });
+  }
+
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        success: false,
+        message: "Image size must be 5MB or less",
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: err.message,
     });
   }
 

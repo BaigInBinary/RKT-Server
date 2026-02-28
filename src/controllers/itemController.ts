@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as itemService from '../services/itemService';
+import { uploadImageBuffer } from "../config/cloudinary";
 
 export const getItems = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -53,6 +54,22 @@ export const getStockAlerts = async (req: Request, res: Response, next: NextFunc
   try {
     const alerts = await itemService.getStockAlerts();
     res.status(200).json(alerts);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const uploadItemImage = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Image file is required" });
+    }
+
+    const uploadedImage = await uploadImageBuffer(req.file.buffer, "items");
+    res.status(200).json({
+      imageUrl: uploadedImage.secure_url,
+      publicId: uploadedImage.public_id,
+    });
   } catch (error) {
     next(error);
   }

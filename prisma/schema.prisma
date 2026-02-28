@@ -27,6 +27,7 @@ model Item {
   name        String
   sku         String   @unique
   category    String
+  imageUrl    String?
   price       Float
   costPrice   Float
   quantity    Int
@@ -61,5 +62,4 @@ type SaleItem {
   quantity Int
   total    Float
 }
-
 
