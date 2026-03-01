@@ -2,6 +2,113 @@ import { Request, Response, NextFunction } from 'express';
 import * as itemService from '../services/itemService';
 import { uploadImageBuffer } from "../config/cloudinary";
 
+const toNumber = (value: unknown): number | undefined => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const toStringArray = (value: unknown): string[] | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry).trim()).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map((entry) => String(entry).trim()).filter(Boolean);
+        }
+      } catch {
+        return trimmed
+          .split("\n")
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+      }
+    }
+
+    return trimmed
+      .split("\n")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  return undefined;
+};
+
+const toJson = (value: unknown): unknown => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || value === "") {
+    return null;
+  }
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  return value;
+};
+
+const normalizeItemPayload = (body: Record<string, unknown>) => {
+  const payload: Record<string, unknown> = { ...body };
+
+  const numberFields = [
+    "price",
+    "costPrice",
+    "quantity",
+    "minStock",
+    "soldCount",
+    "viewerCount",
+    "averageRating",
+    "reviewCount",
+  ] as const;
+
+  for (const field of numberFields) {
+    const parsed = toNumber(body[field]);
+    if (parsed !== undefined) {
+      payload[field] = parsed;
+    }
+  }
+
+  const galleryImages = toStringArray(body.galleryImages);
+  if (galleryImages !== undefined) {
+    payload.galleryImages = galleryImages;
+  }
+
+  const features = toStringArray(body.features);
+  if (features !== undefined) {
+    payload.features = features;
+  }
+
+  const specifications = toJson(body.specifications);
+  if (specifications !== undefined) {
+    payload.specifications = specifications;
+  }
+
+  const reviews = toJson(body.reviews);
+  if (reviews !== undefined) {
+    payload.reviews = reviews;
+  }
+
+  return payload;
+};
+
 export const getItems = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const items = await itemService.getAllItems();
@@ -25,7 +132,9 @@ export const getItem = async (req: Request, res: Response, next: NextFunction) =
 
 export const createItem = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const item = await itemService.createItem(req.body);
+    const item = await itemService.createItem(
+      normalizeItemPayload(req.body) as itemService.CreateItemInput,
+    );
     res.status(201).json(item);
   } catch (error) {
     next(error);
@@ -34,7 +143,10 @@ export const createItem = async (req: Request, res: Response, next: NextFunction
 
 export const updateItem = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const item = await itemService.updateItem(req.params.id as string, req.body);
+    const item = await itemService.updateItem(
+      req.params.id as string,
+      normalizeItemPayload(req.body) as itemService.UpdateItemInput,
+    );
     res.status(200).json(item);
   } catch (error) {
     next(error);

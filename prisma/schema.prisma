@@ -23,18 +23,27 @@ model User {
 }
 
 model Item {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  name        String
-  sku         String   @unique
-  category    String
-  imageUrl    String?
-  price       Float
-  costPrice   Float
-  quantity    Int
-  minStock    Int
-  supplier    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  name              String
+  sku               String   @unique
+  category          String
+  imageUrl          String?
+  price             Float
+  costPrice         Float
+  quantity          Int
+  minStock          Int
+  supplier          String?
+  shortDescription  String?
+  galleryImages     String[] @default([])
+  features          String[] @default([])
+  specifications    Json?
+  soldCount         Int      @default(0)
+  viewerCount       Int      @default(0)
+  averageRating     Float    @default(0)
+  reviewCount       Int      @default(0)
+  reviews           Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 model Category {

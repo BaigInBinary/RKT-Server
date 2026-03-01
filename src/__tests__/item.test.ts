@@ -12,6 +12,29 @@ describe("Item API", () => {
     quantity: 100,
     minStock: 10,
     supplier: "Test Supplier",
+    shortDescription: "Gaming mouse",
+    galleryImages: ["/assets/product-mouse-1.jpg", "/assets/product-mouse-2.jpg"],
+    features: [
+      "Ergonomic shape",
+      "Optical switches",
+      "On-board memory profiles",
+    ],
+    specifications: {
+      sensor: "Focus+ 20K",
+      buttons: "8 programmable",
+      connectivity: "Wired USB",
+    },
+    soldCount: 5,
+    viewerCount: 53,
+    averageRating: 4.7,
+    reviewCount: 3,
+    reviews: [
+      {
+        author: "Ali",
+        rating: 5,
+        comment: "Excellent response time.",
+      },
+    ],
   };
 
   describe("POST /api/items", () => {
@@ -24,6 +47,12 @@ describe("Item API", () => {
       expect(response.body.sku).toBe(testItem.sku);
       expect(response.body.price).toBe(testItem.price);
       expect(response.body.quantity).toBe(testItem.quantity);
+      expect(response.body.shortDescription).toBe(testItem.shortDescription);
+      expect(response.body.features).toEqual(testItem.features);
+      expect(response.body.specifications).toEqual(testItem.specifications);
+      expect(response.body.soldCount).toBe(testItem.soldCount);
+      expect(response.body.viewerCount).toBe(testItem.viewerCount);
+      expect(response.body.reviewCount).toBe(testItem.reviewCount);
       createdItemId = response.body.id;
     });
 

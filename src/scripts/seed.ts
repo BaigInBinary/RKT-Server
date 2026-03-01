@@ -84,6 +84,30 @@ async function main() {
       quantity: 3,
       minStock: 2,
       supplier: "Samsung Pakistan",
+      shortDescription: "True wireless earbuds with immersive sound.",
+      galleryImages: ["/assets/earbuds-1.jpg", "/assets/earbuds-2.jpg"],
+      features: [
+        "Rich, balanced audio for calls and music",
+        "Comfortable in-ear fit for daily use",
+        "Portable charging case",
+      ],
+      specifications: {
+        batteryLife: "Up to 6 hours",
+        connectivity: "Bluetooth",
+        microphone: "Dual mic",
+      },
+      soldCount: 8,
+      viewerCount: 22,
+      averageRating: 4.3,
+      reviewCount: 12,
+      reviews: [
+        {
+          author: "Ahsan",
+          rating: 4,
+          comment: "Comfortable fit and clear sound.",
+          createdAt: "2025-11-14T10:30:00.000Z",
+        },
+      ],
     },
     {
       name: "Cotton T-Shirt",
