@@ -104,6 +104,48 @@ describe("Sale API", () => {
     });
   });
 
+  describe("PUT /api/sales/:id", () => {
+    it("should update a sale and reconcile stock based on quantity delta", async () => {
+      const response = await request(app)
+        .put(`/api/sales/${createdSaleId}`)
+        .send({
+          items: [
+            {
+              itemId: createdItemId,
+              name: "Sale Test Item",
+              price: 50.0,
+              quantity: 3,
+              total: 150.0,
+            },
+          ],
+          subtotal: 150.0,
+          tax: 10.0,
+          discount: 5.0,
+          total: 155.0,
+          customerName: "Updated Customer",
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.customerName).toBe("Updated Customer");
+      expect(response.body.items[0].quantity).toBe(3);
+
+      const itemResponse = await request(app).get(`/api/items/${createdItemId}`);
+      expect(itemResponse.status).toBe(200);
+      expect(itemResponse.body.quantity).toBe(97); // 100 - 3
+    });
+  });
+
+  describe("DELETE /api/sales/:id", () => {
+    it("should delete a sale and restore stock", async () => {
+      const response = await request(app).delete(`/api/sales/${createdSaleId}`);
+      expect(response.status).toBe(204);
+
+      const itemResponse = await request(app).get(`/api/items/${createdItemId}`);
+      expect(itemResponse.status).toBe(200);
+      expect(itemResponse.body.quantity).toBe(100); // restored
+    });
+  });
+
   // Cleanup
   afterAll(async () => {
     // Delete the test item

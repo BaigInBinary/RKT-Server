@@ -31,3 +31,23 @@ export const getAnalytics = async (req: Request, res: Response, next: NextFuncti
     next(error);
   }
 };
+
+export const updateSale = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const saleId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const sale = await saleService.updateSale(saleId, req.body);
+    res.status(200).json(sale);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteSale = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const saleId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    await saleService.deleteSale(saleId);
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+};
