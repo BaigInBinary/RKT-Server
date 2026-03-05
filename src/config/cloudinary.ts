@@ -30,4 +30,3 @@ export const uploadImageBuffer = async (
     stream.end(buffer);
   });
 };
-
