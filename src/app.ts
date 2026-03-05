@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { type Express } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { errorHandler } from './middlewares/errorMiddleware';
@@ -11,7 +11,7 @@ import saleRoutes from './routes/saleRoutes';
 
 dotenv.config();
 
-const app = express();
+const app: Express = express();
 
 // Middlewares
 app.use(cors());

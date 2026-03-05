@@ -1,7 +1,7 @@
-import express from 'express';
+import express, { type Router } from 'express';
 import * as subCategoryController from '../controllers/subCategoryController';
 
-const router = express.Router();
+const router: Router = express.Router();
 
 router.get('/', subCategoryController.getSubCategories);
 router.get('/:id', subCategoryController.getSubCategory);

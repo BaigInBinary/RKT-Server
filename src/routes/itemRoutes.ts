@@ -1,8 +1,8 @@
-import express from 'express';
+import express, { type Router } from 'express';
 import * as itemController from '../controllers/itemController';
 import { imageUpload } from "../middlewares/uploadMiddleware";
 
-const router = express.Router();
+const router: Router = express.Router();
 
 router.get('/', itemController.getItems);
 router.get('/alerts', itemController.getStockAlerts);
