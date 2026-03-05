@@ -1,19 +1,47 @@
 import express, { type Router } from 'express';
 import * as itemController from '../controllers/itemController';
 import { imageUpload } from "../middlewares/uploadMiddleware";
+import { authenticate, authorizeRoles } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
-router.get('/', itemController.getItems);
-router.get('/alerts', itemController.getStockAlerts);
+router.use(authenticate);
+
+router.get(
+  '/',
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"),
+  itemController.getItems,
+);
+router.get(
+  '/alerts',
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
+  itemController.getStockAlerts,
+);
 router.post(
   "/upload-image",
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
   imageUpload.single("image"),
   itemController.uploadItemImage,
 );
-router.get('/:id', itemController.getItem);
-router.post('/', itemController.createItem);
-router.put('/:id', itemController.updateItem);
-router.delete('/:id', itemController.deleteItem);
+router.get(
+  '/:id',
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"),
+  itemController.getItem,
+);
+router.post(
+  '/',
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
+  itemController.createItem,
+);
+router.put(
+  '/:id',
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
+  itemController.updateItem,
+);
+router.delete(
+  '/:id',
+  authorizeRoles("SUPER_ADMIN", "ADMIN"),
+  itemController.deleteItem,
+);
 
 export default router;

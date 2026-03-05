@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
+import { hashPassword } from "../utils/security";
 
 const prisma = new PrismaClient();
 
@@ -19,10 +20,13 @@ async function main() {
   const user = await prisma.user.create({
     data: {
       email: "admin@store.com",
-      password: "admin123",
+      password: hashPassword("admin123"),
       name: "Store Admin",
-    },
-  });
+      role: "SUPER_ADMIN",
+      status: "ACTIVE",
+      permissions: ["*"],
+    } as any,
+  } as any);
   console.log(`✅ User created: ${user.email}\n`);
 
   // Seed Categories
