@@ -73,6 +73,16 @@ describe("Item API", () => {
     });
   });
 
+  describe("GET /api/items/new-arrival", () => {
+    it("should get at most 8 newest items", async () => {
+      const response = await request(app).get("/api/items/new-arrival");
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.length).toBeLessThanOrEqual(8);
+    });
+  });
+
   describe("GET /api/items/:id", () => {
     it("should get a single item by id", async () => {
       const response = await request(app).get(`/api/items/${createdItemId}`);

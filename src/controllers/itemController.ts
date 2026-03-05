@@ -118,6 +118,15 @@ export const getItems = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
+export const getNewArrivals = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const items = await itemService.getNewArrivals();
+    res.status(200).json(items);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getItem = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const item = await itemService.getItemById(req.params.id as string);

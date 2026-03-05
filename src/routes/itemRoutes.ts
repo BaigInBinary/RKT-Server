@@ -13,6 +13,11 @@ router.get(
   itemController.getItems,
 );
 router.get(
+  "/new-arrival",
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"),
+  itemController.getNewArrivals,
+);
+router.get(
   '/alerts',
   authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
   itemController.getStockAlerts,

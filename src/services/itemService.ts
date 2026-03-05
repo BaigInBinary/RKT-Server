@@ -10,6 +10,13 @@ export const getAllItems = async (): Promise<Item[]> => {
   });
 };
 
+export const getNewArrivals = async (): Promise<Item[]> => {
+  return await prisma.item.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 8,
+  });
+};
+
 export const getItemById = async (id: string): Promise<Item | null> => {
   return await prisma.item.findUnique({
     where: { id },
