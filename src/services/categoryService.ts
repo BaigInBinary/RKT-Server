@@ -10,6 +10,30 @@ export const getAllCategories = async (): Promise<Category[]> => {
   });
 };
 
+export interface PublicCategoryItem {
+  name: string;
+  itemCount: number;
+}
+
+export const getPublicCategoriesWithItems = async (): Promise<PublicCategoryItem[]> => {
+  const grouped = await prisma.item.groupBy({
+    by: ["category"],
+    _count: {
+      _all: true,
+    },
+    orderBy: {
+      category: "asc",
+    },
+  });
+
+  return grouped
+    .map((entry) => ({
+      name: entry.category?.trim(),
+      itemCount: entry._count._all,
+    }))
+    .filter((entry): entry is PublicCategoryItem => Boolean(entry.name) && entry.itemCount > 0);
+};
+
 export const getCategoryById = async (id: string): Promise<Category | null> => {
   return await prisma.category.findUnique({
     where: { id },

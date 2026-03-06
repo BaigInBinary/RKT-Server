@@ -238,16 +238,23 @@ export const deleteSale = async (id: string): Promise<void> => {
   await prisma.$transaction(async (tx) => {
     const existingSale = await tx.sale.findUnique({ where: { id } });
     if (!existingSale) {
-      throw new Error("Sale not found");
+      throw Object.assign(new Error("Sale not found"), { statusCode: 404 });
     }
 
     const previousItems = existingSale.items as unknown as SaleItemInput[];
+    const itemIds = Array.from(new Set(previousItems.map((item) => item.itemId)));
+    const existingItems = await tx.item.findMany({
+      where: { id: { in: itemIds } },
+      select: { id: true },
+    });
+    const existingItemIds = new Set(existingItems.map((item) => item.id));
+
     const soldDelta = new Map<string, number>();
     for (const item of previousItems) {
+      if (!existingItemIds.has(item.itemId)) {
+        continue;
+      }
       soldDelta.set(item.itemId, (soldDelta.get(item.itemId) || 0) - item.quantity);
-    }
-
-    for (const item of previousItems) {
       await tx.item.update({
         where: { id: item.itemId },
         data: {
@@ -258,7 +265,9 @@ export const deleteSale = async (id: string): Promise<void> => {
       });
     }
 
-    await applyHourlyAndSoldCountDeltas(tx, existingSale.date, soldDelta);
+    if (soldDelta.size > 0) {
+      await applyHourlyAndSoldCountDeltas(tx, existingSale.date, soldDelta);
+    }
 
     await tx.sale.delete({ where: { id } });
   });

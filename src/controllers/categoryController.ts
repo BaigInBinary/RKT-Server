@@ -10,6 +10,19 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
   }
 };
 
+export const getPublicCategories = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const categories = await categoryService.getPublicCategoriesWithItems();
+    res.status(200).json(categories);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const category = await categoryService.getCategoryById(req.params.id as string);

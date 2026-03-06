@@ -4,7 +4,7 @@ import { authenticate, authorizeRoles } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
-router.get('/public', categoryController.getCategories);
+router.get('/public', categoryController.getPublicCategories);
 
 router.use(authenticate);
 
