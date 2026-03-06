@@ -109,10 +109,83 @@ const normalizeItemPayload = (body: Record<string, unknown>) => {
   return payload;
 };
 
+const getQueryString = (value: unknown): string | undefined => {
+  if (Array.isArray(value)) {
+    return value[0] ? String(value[0]) : undefined;
+  }
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  return String(value);
+};
+
+const getStringList = (value: unknown): string[] | undefined => {
+  if (Array.isArray(value)) {
+    const list = value
+      .flatMap((entry) => String(entry).split(","))
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    return list.length > 0 ? list : undefined;
+  }
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const list = String(value)
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return list.length > 0 ? list : undefined;
+};
+
 export const getItems = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const items = await itemService.getAllItems();
     res.status(200).json(items);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getCatalogItems = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const page = toNumber(getQueryString(req.query.page));
+    const limit = toNumber(getQueryString(req.query.limit));
+    const minPrice = toNumber(getQueryString(req.query.minPrice));
+    const maxPrice = toNumber(getQueryString(req.query.maxPrice));
+    const inStockRaw = getQueryString(req.query.inStockOnly);
+    const inStockOnly =
+      inStockRaw !== undefined ? inStockRaw.toLowerCase() === "true" : undefined;
+
+    const sortByRaw = getQueryString(req.query.sortBy);
+    const sortOrderRaw = getQueryString(req.query.sortOrder);
+    const sortBy =
+      sortByRaw === "price" ||
+      sortByRaw === "name" ||
+      sortByRaw === "createdAt" ||
+      sortByRaw === "soldCount"
+        ? sortByRaw
+        : undefined;
+    const sortOrder =
+      sortOrderRaw === "asc" || sortOrderRaw === "desc" ? sortOrderRaw : undefined;
+
+    const result = await itemService.getCatalogItems({
+      page,
+      limit,
+      search: getQueryString(req.query.search),
+      categories: getStringList(req.query.category),
+      subCategoryIds: getStringList(req.query.subCategoryId),
+      minPrice,
+      maxPrice,
+      inStockOnly,
+      sortBy,
+      sortOrder,
+    });
+
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }

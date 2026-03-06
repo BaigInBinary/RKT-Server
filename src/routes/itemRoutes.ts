@@ -5,6 +5,8 @@ import { authenticate, authorizeRoles } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
+router.get("/catalog", itemController.getCatalogItems);
+
 router.use(authenticate);
 
 router.get(
