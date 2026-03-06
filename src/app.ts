@@ -8,6 +8,7 @@ import itemRoutes from './routes/itemRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import subCategoryRoutes from './routes/subCategoryRoutes';
 import saleRoutes from './routes/saleRoutes';
+import favoriteRoutes from './routes/favoriteRoutes';
 
 dotenv.config();
 
@@ -29,6 +30,7 @@ app.use('/api/items', itemRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/sub-categories', subCategoryRoutes);
 app.use('/api/sales', saleRoutes);
+app.use('/api/favorites', favoriteRoutes);
 
 // Error Handler
 app.use(errorHandler);
