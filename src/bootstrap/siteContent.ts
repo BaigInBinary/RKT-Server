@@ -110,6 +110,40 @@ const DEFAULT_SITE_PAGES: Array<{
       },
     ],
   },
+  {
+    slug: "privacy-policy",
+    pageTitle: "Privacy Policy",
+    lastUpdatedLabel: "August 7, 2025",
+    introText:
+      "RK Store is committed to protecting your privacy. This policy outlines how we collect, use, and protect your personal information.",
+    sections: [
+      {
+        heading: "What We Collect",
+        description:
+          "We may collect:\n- Your name, email address, shipping address, and phone number\n- Payment information (processed securely through third-party providers)\n- Usage data such as browser type, IP address, and time zone",
+      },
+      {
+        heading: "How We Use Your Information",
+        description:
+          "We use your information to:\n- Process and ship orders\n- Communicate with you (order updates, promotions, support)\n- Improve our website and services",
+      },
+      {
+        heading: "Third-Party Services",
+        description:
+          "We use third-party services for secure payments and operations. These providers have their own privacy policies.",
+      },
+      {
+        heading: "Cookies",
+        description:
+          "Our website uses cookies to improve user experience and analyze traffic. You can disable cookies in your browser settings.",
+      },
+      {
+        heading: "Your Rights",
+        description:
+          "You have the right to:\n- Access your personal information\n- Request corrections or deletion\n- Opt out of marketing emails at any time\n\nFor privacy-related inquiries, contact privacy@rkstore.com.",
+      },
+    ],
+  },
 ];
 
 export const ensureDefaultSiteContent = async (): Promise<void> => {
