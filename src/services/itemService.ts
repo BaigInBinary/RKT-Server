@@ -20,6 +20,11 @@ export interface CatalogQueryInput {
   sortOrder?: CatalogSortOrder;
 }
 
+export interface TopSellingQueryInput {
+  hours?: number;
+  limit?: number;
+}
+
 type PurchaseRule = {
   minPurchaseValue: number;
   discountAmount: number;
@@ -257,6 +262,93 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
       totalPages,
       hasNextPage: page < totalPages,
       hasPrevPage: page > 1,
+    },
+  };
+};
+
+export const getTopSellingItems = async (query: TopSellingQueryInput) => {
+  const hours = Number.isFinite(query.hours) ? Math.max(1, Math.floor(query.hours as number)) : 24;
+  const limit = Number.isFinite(query.limit)
+    ? Math.min(50, Math.max(1, Math.floor(query.limit as number)))
+    : 8;
+
+  const from = new Date(Date.now() - hours * 60 * 60 * 1000);
+  from.setMinutes(0, 0, 0);
+
+  const hourlyRows = await prisma.itemSalesHourly.findMany({
+    where: {
+      bucketStart: {
+        gte: from,
+      },
+    },
+    select: {
+      itemId: true,
+      quantity: true,
+    },
+  });
+
+  const soldByItem = new Map<string, number>();
+  for (const row of hourlyRows) {
+    soldByItem.set(row.itemId, (soldByItem.get(row.itemId) || 0) + row.quantity);
+  }
+
+  const ranked = Array.from(soldByItem.entries())
+    .map(([itemId, sold]) => ({ itemId, sold }))
+    .filter((entry) => entry.sold > 0)
+    .sort((a, b) => b.sold - a.sold)
+    .slice(0, limit);
+
+  if (ranked.length === 0) {
+    return {
+      data: [],
+      meta: {
+        hours,
+        limit,
+        from,
+      },
+    };
+  }
+
+  const ids = ranked.map((entry) => entry.itemId);
+  const items = await prisma.item.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      name: true,
+      sku: true,
+      category: true,
+      imageUrl: true,
+      price: true,
+      soldCount: true,
+      quantity: true,
+    },
+  });
+  const itemById = new Map(items.map((item) => [item.id, item]));
+
+  return {
+    data: ranked
+      .map((entry) => {
+        const item = itemById.get(entry.itemId);
+        if (!item) {
+          return null;
+        }
+        return {
+          id: item.id,
+          name: item.name,
+          sku: item.sku,
+          category: item.category,
+          imageUrl: item.imageUrl,
+          price: item.price,
+          quantity: item.quantity,
+          soldLastHours: entry.sold,
+          totalSold: item.soldCount,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => !!entry),
+    meta: {
+      hours,
+      limit,
+      from,
     },
   };
 };

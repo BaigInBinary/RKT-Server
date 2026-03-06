@@ -131,6 +131,18 @@ model Sale {
   createdAt    DateTime   @default(now())
 }
 
+model ItemSalesHourly {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  itemId      String   @db.ObjectId
+  bucketStart DateTime
+  quantity    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([itemId, bucketStart])
+  @@index([bucketStart])
+}
+
 model Favorite {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId

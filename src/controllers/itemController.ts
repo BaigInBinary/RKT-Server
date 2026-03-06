@@ -191,6 +191,24 @@ export const getCatalogItems = async (
   }
 };
 
+export const getTopSellingItems = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const pageHours = toNumber(getQueryString(req.query.hours));
+    const limit = toNumber(getQueryString(req.query.limit));
+    const result = await itemService.getTopSellingItems({
+      hours: pageHours,
+      limit,
+    });
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getNewArrivals = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const items = await itemService.getNewArrivals();

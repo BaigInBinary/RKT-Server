@@ -35,6 +35,70 @@ export interface SalesAnalytics {
   sales: Sale[];
 }
 
+type ItemQuantityDelta = Map<string, number>;
+
+const toHourBucketStart = (value: Date): Date => {
+  const date = new Date(value);
+  date.setMinutes(0, 0, 0);
+  return date;
+};
+
+const buildQuantityMap = (items: SaleItemInput[]): ItemQuantityDelta => {
+  const map: ItemQuantityDelta = new Map();
+  for (const item of items) {
+    map.set(item.itemId, (map.get(item.itemId) || 0) + item.quantity);
+  }
+  return map;
+};
+
+const mergeDeltaMaps = (base: ItemQuantityDelta, delta: ItemQuantityDelta) => {
+  for (const [itemId, quantity] of delta.entries()) {
+    base.set(itemId, (base.get(itemId) || 0) + quantity);
+  }
+};
+
+const applyHourlyAndSoldCountDeltas = async (
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  bucketDate: Date,
+  deltas: ItemQuantityDelta,
+) => {
+  const bucketStart = toHourBucketStart(bucketDate);
+
+  for (const [itemId, quantity] of deltas.entries()) {
+    if (quantity === 0) {
+      continue;
+    }
+
+    await tx.itemSalesHourly.upsert({
+      where: {
+        itemId_bucketStart: {
+          itemId,
+          bucketStart,
+        },
+      },
+      create: {
+        itemId,
+        bucketStart,
+        quantity,
+      },
+      update: {
+        quantity: {
+          increment: quantity,
+        },
+      },
+    });
+
+    await tx.item.update({
+      where: { id: itemId },
+      data: {
+        soldCount: {
+          increment: quantity,
+        },
+      },
+    });
+  }
+};
+
 export const getAllSales = async (): Promise<Sale[]> => {
   return await prisma.sale.findMany({
     orderBy: { date: "desc" },
@@ -44,6 +108,9 @@ export const getAllSales = async (): Promise<Sale[]> => {
 export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
   // Use a transaction to ensure both sale creation and stock update succeed
   return await prisma.$transaction(async (tx) => {
+    const saleDate = data.date || new Date();
+    const quantityMap = buildQuantityMap(data.items);
+
     // 1. Create the sale
     const sale = await tx.sale.create({
       data: {
@@ -53,7 +120,7 @@ export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
         discount: data.discount,
         total: data.total,
         customerName: data.customerName,
-        date: data.date || new Date(),
+        date: saleDate,
       },
     });
 
@@ -68,6 +135,8 @@ export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
         },
       });
     }
+
+    await applyHourlyAndSoldCountDeltas(tx, saleDate, quantityMap);
 
     return sale;
   });
@@ -84,6 +153,8 @@ export const updateSale = async (
     }
 
     const previousItems = existingSale.items as unknown as SaleItemInput[];
+    const nextSaleDate = data.date || existingSale.date;
+
     const previousByItemId = new Map<string, number>();
     const nextByItemId = new Map<string, number>();
 
@@ -128,6 +199,26 @@ export const updateSale = async (
       });
     }
 
+    const oldBucketDelta = new Map<string, number>();
+    for (const [itemId, qty] of previousByItemId.entries()) {
+      oldBucketDelta.set(itemId, -qty);
+    }
+
+    const newBucketDelta = new Map<string, number>();
+    for (const [itemId, qty] of nextByItemId.entries()) {
+      newBucketDelta.set(itemId, qty);
+    }
+
+    if (toHourBucketStart(existingSale.date).getTime() === toHourBucketStart(nextSaleDate).getTime()) {
+      const merged = new Map<string, number>();
+      mergeDeltaMaps(merged, oldBucketDelta);
+      mergeDeltaMaps(merged, newBucketDelta);
+      await applyHourlyAndSoldCountDeltas(tx, nextSaleDate, merged);
+    } else {
+      await applyHourlyAndSoldCountDeltas(tx, existingSale.date, oldBucketDelta);
+      await applyHourlyAndSoldCountDeltas(tx, nextSaleDate, newBucketDelta);
+    }
+
     return await tx.sale.update({
       where: { id },
       data: {
@@ -137,7 +228,7 @@ export const updateSale = async (
         discount: data.discount,
         total: data.total,
         customerName: data.customerName,
-        date: data.date || existingSale.date,
+        date: nextSaleDate,
       },
     });
   });
@@ -151,6 +242,11 @@ export const deleteSale = async (id: string): Promise<void> => {
     }
 
     const previousItems = existingSale.items as unknown as SaleItemInput[];
+    const soldDelta = new Map<string, number>();
+    for (const item of previousItems) {
+      soldDelta.set(item.itemId, (soldDelta.get(item.itemId) || 0) - item.quantity);
+    }
+
     for (const item of previousItems) {
       await tx.item.update({
         where: { id: item.itemId },
@@ -161,6 +257,8 @@ export const deleteSale = async (id: string): Promise<void> => {
         },
       });
     }
+
+    await applyHourlyAndSoldCountDeltas(tx, existingSale.date, soldDelta);
 
     await tx.sale.delete({ where: { id } });
   });
