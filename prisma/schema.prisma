@@ -52,6 +52,11 @@ enum DiscountScope {
   ITEM
 }
 
+enum CollectionSubCategoryMode {
+  ALL_ITEMS
+  SELECTED_ITEMS
+}
+
 model Item {
   id                String   @id @default(auto()) @map("_id") @db.ObjectId
   name              String
@@ -83,6 +88,7 @@ model Category {
   id            String        @id @default(auto()) @map("_id") @db.ObjectId
   name          String        @unique
   subCategories SubCategory[]
+  collectionSelections CollectionCategorySelection[]
   createdAt     DateTime      @default(now())
 }
 
@@ -93,6 +99,7 @@ model SubCategory {
   category   Category @relation(fields: [categoryId], references: [id])
   items      Item[]   @relation("ItemSubCategory")
   targetedByDiscounts Discount[] @relation("DiscountTargetSubCategory")
+  collectionSelections CollectionSubCategorySelection[]
   createdAt  DateTime @default(now())
 
   @@unique([name, categoryId])
@@ -141,6 +148,64 @@ model ItemSalesHourly {
 
   @@unique([itemId, bucketStart])
   @@index([bucketStart])
+}
+
+model Collection {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  slug        String   @unique
+  bannerImage String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  categories            CollectionCategorySelection[]
+  subCategorySelections CollectionSubCategorySelection[]
+  directItems           CollectionItemSelection[]
+}
+
+model CollectionCategorySelection {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  collectionId String     @db.ObjectId
+  categoryId   String     @db.ObjectId
+  collection   Collection @relation(fields: [collectionId], references: [id])
+  category     Category   @relation(fields: [categoryId], references: [id])
+  createdAt    DateTime   @default(now())
+
+  @@unique([collectionId, categoryId])
+}
+
+model CollectionSubCategorySelection {
+  id            String                    @id @default(auto()) @map("_id") @db.ObjectId
+  collectionId  String                    @db.ObjectId
+  subCategoryId String                    @db.ObjectId
+  mode          CollectionSubCategoryMode @default(ALL_ITEMS)
+  collection    Collection                @relation(fields: [collectionId], references: [id])
+  subCategory   SubCategory               @relation(fields: [subCategoryId], references: [id])
+  selectedItems CollectionSubCategoryItem[]
+  createdAt     DateTime                  @default(now())
+
+  @@unique([collectionId, subCategoryId])
+}
+
+model CollectionSubCategoryItem {
+  id                      String                       @id @default(auto()) @map("_id") @db.ObjectId
+  subCategorySelectionId  String                       @db.ObjectId
+  itemId                  String                       @db.ObjectId
+  subCategorySelection    CollectionSubCategorySelection @relation(fields: [subCategorySelectionId], references: [id])
+  createdAt               DateTime                     @default(now())
+
+  @@unique([subCategorySelectionId, itemId])
+}
+
+model CollectionItemSelection {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  collectionId String     @db.ObjectId
+  itemId       String     @db.ObjectId
+  collection   Collection @relation(fields: [collectionId], references: [id])
+  createdAt    DateTime   @default(now())
+
+  @@unique([collectionId, itemId])
 }
 
 model Favorite {

@@ -11,6 +11,7 @@ import saleRoutes from './routes/saleRoutes';
 import favoriteRoutes from './routes/favoriteRoutes';
 import discountRoutes from "./routes/discountRoutes";
 import siteContentRoutes from "./routes/siteContentRoutes";
+import collectionRoutes from "./routes/collectionRoutes";
 
 dotenv.config();
 
@@ -35,6 +36,7 @@ app.use('/api/sales', saleRoutes);
 app.use('/api/favorites', favoriteRoutes);
 app.use("/api/discounts", discountRoutes);
 app.use("/api/site-content", siteContentRoutes);
+app.use("/api/collections", collectionRoutes);
 
 // Error Handler
 app.use(errorHandler);

@@ -9,6 +9,11 @@ async function main() {
 
   // Clear existing data
   console.log("🗑️  Clearing existing data...");
+  await prisma.collectionSubCategoryItem.deleteMany();
+  await prisma.collectionSubCategorySelection.deleteMany();
+  await prisma.collectionItemSelection.deleteMany();
+  await prisma.collectionCategorySelection.deleteMany();
+  await prisma.collection.deleteMany();
   await prisma.sale.deleteMany();
   await prisma.itemSalesHourly.deleteMany();
   await prisma.discount.deleteMany();
@@ -316,3 +321,4 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+
