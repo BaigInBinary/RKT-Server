@@ -47,5 +47,5 @@ export const deleteItem = async (id: string): Promise<Item> => {
 
 export const getStockAlerts = async (): Promise<Item[]> => {
   const items = await prisma.item.findMany();
-  return items.filter((item) => item.quantity <= item.minStock);
+  return items.filter((item) => item.quantity < item.minStock);
 };
