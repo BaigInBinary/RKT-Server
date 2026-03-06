@@ -39,11 +39,26 @@ enum UserStatus {
   SUSPENDED
 }
 
+enum DiscountType {
+  FLAT
+  PERCENTAGE
+  VALUE_BASED
+}
+
+enum DiscountScope {
+  ALL
+  CATEGORY
+  SUBCATEGORY
+  ITEM
+}
+
 model Item {
   id                String   @id @default(auto()) @map("_id") @db.ObjectId
   name              String
   sku               String   @unique
   category          String
+  subCategoryId     String?  @db.ObjectId
+  subCategory       SubCategory? @relation("ItemSubCategory", fields: [subCategoryId], references: [id])
   imageUrl          String?
   price             Float
   costPrice         Float
@@ -59,6 +74,7 @@ model Item {
   averageRating     Float    @default(0)
   reviewCount       Int      @default(0)
   reviews           Json?
+  targetedByDiscounts Discount[] @relation("DiscountTargetItem")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
@@ -75,9 +91,32 @@ model SubCategory {
   name       String
   categoryId String   @db.ObjectId
   category   Category @relation(fields: [categoryId], references: [id])
+  items      Item[]   @relation("ItemSubCategory")
+  targetedByDiscounts Discount[] @relation("DiscountTargetSubCategory")
   createdAt  DateTime @default(now())
 
   @@unique([name, categoryId])
+}
+
+model Discount {
+  id                   String        @id @default(auto()) @map("_id") @db.ObjectId
+  name                 String
+  description          String?
+  discountType         DiscountType
+  scope                DiscountScope
+  discountValue        Float?
+  purchaseValueRules   Json?
+  minimumPurchaseValue Float         @default(0)
+  isActive             Boolean       @default(true)
+  startDate            DateTime?
+  endDate              DateTime?
+  targetCategory       String?
+  targetSubCategoryId  String?       @db.ObjectId
+  targetSubCategory    SubCategory?  @relation("DiscountTargetSubCategory", fields: [targetSubCategoryId], references: [id])
+  targetItemId         String?       @db.ObjectId
+  targetItem           Item?         @relation("DiscountTargetItem", fields: [targetItemId], references: [id])
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 }
 
 model Sale {
