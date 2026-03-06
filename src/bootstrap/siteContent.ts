@@ -76,6 +76,40 @@ const DEFAULT_SITE_PAGES: Array<{
       },
     ],
   },
+  {
+    slug: "refund-policy",
+    pageTitle: "Refund Policy",
+    lastUpdatedLabel: "August 7, 2025",
+    introText:
+      "We want you to love your purchase from RK Store. If you're not completely satisfied, we're here to help.",
+    sections: [
+      {
+        heading: "Returns",
+        description:
+          "You have 14 days from the date of delivery to request a return. To be eligible:\n- The item must be unused and in the same condition that you received it.\n- It must be in the original packaging.\n- Proof of purchase is required (receipt or order number).\n\nTo initiate a return, contact us at support@rkstore.com. Please do not send your purchase back without contacting us first.",
+      },
+      {
+        heading: "Refunds",
+        description:
+          "Once your return is received and inspected, we'll notify you about the status of your refund. If approved, your refund will be processed and applied to your original payment method within 5-10 business days.",
+      },
+      {
+        heading: "Non-Returnable Items",
+        description:
+          "Certain types of goods are exempt from being returned:\n- Perishable items\n- Downloadable software\n- Gift cards\n- Personalized or custom-made products",
+      },
+      {
+        heading: "Exchanges",
+        description:
+          "We only replace items if they are defective or damaged. If you need an exchange, contact us at support@rkstore.com.",
+      },
+      {
+        heading: "Shipping Returns",
+        description:
+          "You will be responsible for paying return shipping costs unless the item was defective or incorrect.",
+      },
+    ],
+  },
 ];
 
 export const ensureDefaultSiteContent = async (): Promise<void> => {
