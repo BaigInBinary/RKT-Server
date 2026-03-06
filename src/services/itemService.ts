@@ -266,6 +266,66 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
   };
 };
 
+export const getCatalogItemById = async (id: string) => {
+  const [item, activeDiscounts] = await prisma.$transaction([
+    prisma.item.findUnique({
+      where: { id },
+      include: {
+        subCategory: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    }),
+    prisma.discount.findMany({
+      where: { isActive: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+
+  if (!item) {
+    return null;
+  }
+
+  const now = new Date();
+  const discounts = activeDiscounts.filter((discount) => isDiscountActive(discount, now));
+  const pricing = applyListingDiscounts(
+    item.price,
+    {
+      id: item.id,
+      category: item.category,
+      subCategoryId: item.subCategoryId,
+    },
+    discounts,
+  );
+
+  return {
+    id: item.id,
+    name: item.name,
+    sku: item.sku,
+    category: item.category,
+    subCategoryId: item.subCategoryId,
+    subCategoryName: item.subCategory?.name || null,
+    imageUrl: item.imageUrl,
+    galleryImages: item.galleryImages || [],
+    shortDescription: item.shortDescription,
+    features: item.features || [],
+    specifications: item.specifications || null,
+    reviews: item.reviews || null,
+    quantity: item.quantity,
+    inStock: item.quantity > 0,
+    soldCount: item.soldCount,
+    viewerCount: item.viewerCount,
+    averageRating: item.averageRating,
+    reviewCount: item.reviewCount,
+    pricing,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+};
+
 export const getTopSellingItems = async (query: TopSellingQueryInput) => {
   const hours = Number.isFinite(query.hours) ? Math.max(1, Math.floor(query.hours as number)) : 24;
   const limit = Number.isFinite(query.limit)

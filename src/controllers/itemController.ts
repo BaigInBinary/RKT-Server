@@ -209,6 +209,22 @@ export const getTopSellingItems = async (
   }
 };
 
+export const getCatalogItem = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const item = await itemService.getCatalogItemById(req.params.id as string);
+    if (!item) {
+      return res.status(404).json({ message: "Item not found" });
+    }
+    res.status(200).json(item);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getNewArrivals = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const items = await itemService.getNewArrivals();
