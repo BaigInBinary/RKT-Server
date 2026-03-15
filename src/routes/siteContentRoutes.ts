@@ -1,12 +1,12 @@
 import express, { type Router } from "express";
 import * as siteContentController from "../controllers/siteContentController";
-import { authenticate, authorizeRoles } from "../middlewares/authMiddleware";
+import { authenticate, authorizeAccountTypes, authorizeRoles } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
 router.get("/:slug", siteContentController.getSitePageBySlug);
 
-router.use(authenticate);
+router.use(authenticate, authorizeAccountTypes("ADMIN_PORTAL"));
 
 router.get(
   "/",

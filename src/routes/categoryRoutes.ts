@@ -1,12 +1,12 @@
 import express, { type Router } from 'express';
 import * as categoryController from '../controllers/categoryController';
-import { authenticate, authorizeRoles } from "../middlewares/authMiddleware";
+import { authenticate, authorizeAccountTypes, authorizeRoles } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
 router.get('/public', categoryController.getPublicCategories);
 
-router.use(authenticate);
+router.use(authenticate, authorizeAccountTypes("ADMIN_PORTAL"));
 
 router.get(
   '/',

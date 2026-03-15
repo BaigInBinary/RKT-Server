@@ -1,10 +1,10 @@
 import express, { type Router } from 'express';
 import * as saleController from '../controllers/saleController';
-import { authenticate, authorizeRoles } from "../middlewares/authMiddleware";
+import { authenticate, authorizeAccountTypes, authorizeRoles } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
-router.use(authenticate);
+router.use(authenticate, authorizeAccountTypes("ADMIN_PORTAL"));
 
 router.get(
   '/',

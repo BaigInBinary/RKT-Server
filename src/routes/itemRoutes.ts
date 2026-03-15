@@ -1,7 +1,7 @@
 import express, { type Router } from 'express';
 import * as itemController from '../controllers/itemController';
 import { imageUpload } from "../middlewares/uploadMiddleware";
-import { authenticate, authorizeRoles } from "../middlewares/authMiddleware";
+import { authenticate, authorizeAccountTypes, authorizeRoles } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
@@ -9,7 +9,7 @@ router.get("/catalog", itemController.getCatalogItems);
 router.get("/catalog/:id", itemController.getCatalogItem);
 router.get("/top-selling", itemController.getTopSellingItems);
 
-router.use(authenticate);
+router.use(authenticate, authorizeAccountTypes("ADMIN_PORTAL"));
 
 router.get(
   '/',

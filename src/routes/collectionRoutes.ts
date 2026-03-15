@@ -1,6 +1,6 @@
 import express, { type Router } from "express";
 import * as collectionController from "../controllers/collectionController";
-import { authenticate, authorizeRoles } from "../middlewares/authMiddleware";
+import { authenticate, authorizeAccountTypes, authorizeRoles } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
@@ -8,7 +8,7 @@ router.get("/", collectionController.listPublicCollections);
 router.get("/:idOrSlug/items", collectionController.getPublicCollectionItems);
 router.get("/:idOrSlug", collectionController.getPublicCollection);
 
-router.use(authenticate);
+router.use(authenticate, authorizeAccountTypes("ADMIN_PORTAL"));
 
 router.get(
   "/admin/all",
