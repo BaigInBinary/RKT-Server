@@ -2,10 +2,12 @@ import crypto from "crypto";
 
 export type UserRole = "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "CASHIER";
 export type UserStatus = "PENDING" | "ACTIVE" | "SUSPENDED";
+export type UserAccountType = "ADMIN_PORTAL" | "LOCAL_USER";
 
 export interface AuthTokenPayload {
   sub: string;
   email: string;
+  accountType: UserAccountType;
   role: UserRole;
   status: UserStatus;
   permissions: string[];

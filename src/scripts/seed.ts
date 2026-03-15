@@ -29,6 +29,7 @@ async function main() {
       email: "admin@store.com",
       password: hashPassword("admin123"),
       name: "Store Admin",
+      accountType: "ADMIN_PORTAL",
       role: "SUPER_ADMIN",
       status: "ACTIVE",
       permissions: ["*"],

@@ -1,10 +1,11 @@
 import prisma from "../config/prisma";
-import { type UserRole, type UserStatus } from "../utils/security";
+import { type UserAccountType, type UserRole, type UserStatus } from "../utils/security";
 
 export interface SafeUser {
   id: string;
   email: string;
   name: string | null;
+  accountType: UserAccountType;
   role: UserRole;
   status: UserStatus;
   permissions: string[];
@@ -16,6 +17,7 @@ export interface CreateUserInput {
   email: string;
   password: string;
   name?: string;
+  accountType?: UserAccountType;
   role?: UserRole;
   status?: UserStatus;
   permissions?: string[];
@@ -28,6 +30,7 @@ export interface UpdateUserAccessInput {
 }
 
 export interface UpdateUserInput extends UpdateUserAccessInput {
+  accountType?: UserAccountType;
   password?: string;
   name?: string;
 }
@@ -37,6 +40,7 @@ const toSafeUser = (user: any): SafeUser => {
     id: user.id,
     email: user.email,
     name: user.name ?? null,
+    accountType: (user.accountType ?? "ADMIN_PORTAL") as UserAccountType,
     role: (user.role ?? "CASHIER") as UserRole,
     status: (user.status ?? "PENDING") as UserStatus,
     permissions: Array.isArray(user.permissions) ? user.permissions : [],

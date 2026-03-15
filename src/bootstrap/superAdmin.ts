@@ -18,6 +18,7 @@ export const ensureSuperAdminUser = async (): Promise<void> => {
       email,
       password: hashPassword(SUPER_ADMIN_PASSWORD),
       name: SUPER_ADMIN_NAME,
+      accountType: "ADMIN_PORTAL",
       role: "SUPER_ADMIN",
       status: "ACTIVE",
       permissions: ["*"],
@@ -27,6 +28,7 @@ export const ensureSuperAdminUser = async (): Promise<void> => {
 
   const needsRoleFix = existing.role !== "SUPER_ADMIN";
   const needsStatusFix = existing.status !== "ACTIVE";
+  const needsAccountTypeFix = existing.accountType !== "ADMIN_PORTAL";
   const currentPermissions = Array.isArray(existing.permissions)
     ? existing.permissions
     : [];
@@ -36,8 +38,9 @@ export const ensureSuperAdminUser = async (): Promise<void> => {
     typeof existing.password === "string" ? existing.password : "";
   const needsPasswordFix = !verifyPassword(SUPER_ADMIN_PASSWORD, storedPassword);
 
-  if (needsRoleFix || needsStatusFix || needsPermissionFix || needsPasswordFix) {
+  if (needsRoleFix || needsStatusFix || needsAccountTypeFix || needsPermissionFix || needsPasswordFix) {
     await userService.updateUserById(existing.id as string, {
+      accountType: "ADMIN_PORTAL",
       role: "SUPER_ADMIN",
       status: "ACTIVE",
       permissions: ["*"],

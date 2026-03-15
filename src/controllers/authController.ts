@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import * as userService from '../services/userService';
 import {
   hashPassword,
+  type UserAccountType,
   signAuthToken,
   type UserRole,
   type UserStatus,
@@ -10,6 +11,8 @@ import {
 
 const VALID_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"];
 const VALID_STATUSES: UserStatus[] = ["PENDING", "ACTIVE", "SUSPENDED"];
+const ADMIN_ACCOUNT_TYPE: UserAccountType = "ADMIN_PORTAL";
+const CUSTOMER_ACCOUNT_TYPE: UserAccountType = "LOCAL_USER";
 
 const normalizeRole = (value: unknown): UserRole | null => {
   if (typeof value !== "string") {
@@ -31,12 +34,18 @@ const toAuthUser = (user: any) => ({
   id: user.id as string,
   email: user.email as string,
   name: (user.name ?? "") as string,
+  accountType: (user.accountType ?? ADMIN_ACCOUNT_TYPE) as UserAccountType,
   role: (user.role ?? "CASHIER") as UserRole,
   status: (user.status ?? "PENDING") as UserStatus,
   permissions: Array.isArray(user.permissions) ? (user.permissions as string[]) : [],
 });
 
-export const register = async (req: Request, res: Response, next: NextFunction) => {
+const registerWithAccountType = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  accountType: UserAccountType,
+) => {
   try {
     const { email, password, name } = req.body;
     if (!email || !password || !name) {
@@ -51,20 +60,25 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     }
 
     const role: UserRole = "CASHIER";
-    const status: UserStatus = "PENDING";
+    const status: UserStatus =
+      accountType === ADMIN_ACCOUNT_TYPE ? "PENDING" : "ACTIVE";
     const permissions: string[] = [];
 
     const user = await userService.createUser({
       email,
       password: hashPassword(password),
       name,
+      accountType,
       role,
       status,
       permissions,
     });
 
     return res.status(201).json({
-      message: "Account created and pending super admin approval",
+      message:
+        accountType === ADMIN_ACCOUNT_TYPE
+          ? "Account created and pending super admin approval"
+          : "Account created successfully",
       user: toAuthUser(user),
     });
   } catch (error) {
@@ -72,7 +86,12 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
-export const login = async (req: Request, res: Response, next: NextFunction) => {
+const loginWithAccountType = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  accountType: UserAccountType,
+) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -82,6 +101,15 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     const user = await userService.findUserByEmail(email);
     if (!user || !verifyPassword(password, user.password as string)) {
       return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const userAccountType = (user.accountType ?? ADMIN_ACCOUNT_TYPE) as UserAccountType;
+    if (userAccountType !== accountType) {
+      const portalMessage =
+        accountType === ADMIN_ACCOUNT_TYPE
+          ? "Use the customer login for local accounts"
+          : "Use the admin portal login for staff accounts";
+      return res.status(403).json({ message: portalMessage });
     }
 
     if ((user.status as UserStatus) !== "ACTIVE") {
@@ -94,6 +122,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     const token = signAuthToken({
       sub: authUser.id,
       email: authUser.email,
+      accountType: authUser.accountType,
       role: authUser.role,
       status: authUser.status,
       permissions: authUser.permissions,
@@ -107,6 +136,24 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     next(error);
   }
 };
+
+export const register = async (req: Request, res: Response, next: NextFunction) =>
+  registerWithAccountType(req, res, next, ADMIN_ACCOUNT_TYPE);
+
+export const login = async (req: Request, res: Response, next: NextFunction) =>
+  loginWithAccountType(req, res, next, ADMIN_ACCOUNT_TYPE);
+
+export const registerCustomer = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => registerWithAccountType(req, res, next, CUSTOMER_ACCOUNT_TYPE);
+
+export const loginCustomer = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => loginWithAccountType(req, res, next, CUSTOMER_ACCOUNT_TYPE);
 
 export const me = async (req: Request, res: Response, next: NextFunction) => {
   try {

@@ -18,6 +18,7 @@ model User {
   email     String   @unique
   password  String
   name      String?
+  accountType UserAccountType @default(ADMIN_PORTAL)
   role      UserRole @default(CASHIER)
   status    UserStatus @default(PENDING)
   permissions String[] @default([])
@@ -37,6 +38,11 @@ enum UserStatus {
   PENDING
   ACTIVE
   SUSPENDED
+}
+
+enum UserAccountType {
+  ADMIN_PORTAL
+  LOCAL_USER
 }
 
 enum DiscountType {
