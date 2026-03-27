@@ -77,6 +77,7 @@ const normalizeItemPayload = (body: Record<string, unknown>) => {
     "viewerCount",
     "averageRating",
     "reviewCount",
+    "weightInGrams",
   ] as const;
 
   for (const field of numberFields) {

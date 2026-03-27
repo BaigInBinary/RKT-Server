@@ -77,6 +77,7 @@ model Item {
   minStock          Int
   supplier          String?
   shortDescription  String?
+  weightInGrams     Float?
   galleryImages     String[] @default([])
   features          String[] @default([])
   specifications    Json?
@@ -88,6 +89,16 @@ model Item {
   targetedByDiscounts Discount[] @relation("DiscountTargetItem")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+model DeliveryRateConfig {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  ratePerKg           Float
+  minimumCharge       Float
+  freeAboveOrderValue Float?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model Category {
