@@ -28,24 +28,16 @@ export const addFavorite = async (
       return res.status(401).json({ message: "Authentication required" });
     }
 
-    const { itemId, name, image, price, category } = req.body as {
+    const { itemId } = req.body as {
       itemId?: string;
-      name?: string;
-      image?: string;
-      price?: number;
-      category?: string;
     };
 
-    if (!itemId || !name) {
-      return res.status(400).json({ message: "itemId and name are required" });
+    if (!itemId) {
+      return res.status(400).json({ message: "itemId is required" });
     }
 
     const favorite = await favoriteService.addFavorite(req.authUser.sub, {
       itemId,
-      name,
-      image,
-      price,
-      category,
     });
 
     return res.status(201).json(favorite);

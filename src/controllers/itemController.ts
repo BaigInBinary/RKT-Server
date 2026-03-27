@@ -147,6 +147,24 @@ export const getItems = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
+export const getBatchCatalogItems = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const ids = getStringList(req.query.ids);
+    if (!ids || ids.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    const items = await itemService.getMultipleCatalogItemsByIds(ids);
+    return res.status(200).json(items);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getCatalogItems = async (
   req: Request,
   res: Response,

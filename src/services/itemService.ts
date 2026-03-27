@@ -328,6 +328,59 @@ export const getCatalogItemById = async (id: string) => {
   };
 };
 
+export const getMultipleCatalogItemsByIds = async (ids: string[]) => {
+  const [items, activeDiscounts] = await prisma.$transaction([
+    prisma.item.findMany({
+      where: { id: { in: ids } },
+      include: {
+        subCategory: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    }),
+    prisma.discount.findMany({
+      where: { isActive: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+
+  const now = new Date();
+  const discounts = activeDiscounts.filter((discount) => isDiscountActive(discount, now));
+
+  return items.map((item) => {
+    const pricing = applyListingDiscounts(
+      item.price,
+      {
+        id: item.id,
+        category: item.category,
+        subCategoryId: item.subCategoryId,
+      },
+      discounts,
+    );
+
+    return {
+      id: item.id,
+      name: item.name,
+      sku: item.sku,
+      category: item.category,
+      subCategoryId: item.subCategoryId,
+      subCategoryName: item.subCategory?.name || null,
+      imageUrl: item.imageUrl,
+      galleryImages: item.galleryImages || [],
+      shortDescription: item.shortDescription,
+      weightInGrams: item.weightInGrams ?? null,
+      quantity: item.quantity,
+      inStock: item.quantity > 0,
+      pricing,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+  });
+};
+
 export const getTopSellingItems = async (query: TopSellingQueryInput) => {
   const hours = Number.isFinite(query.hours) ? Math.max(1, Math.floor(query.hours as number)) : 24;
   const limit = Number.isFinite(query.limit)

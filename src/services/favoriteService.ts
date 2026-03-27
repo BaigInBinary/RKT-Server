@@ -2,17 +2,19 @@ import prisma from "../config/prisma";
 
 export interface FavoriteInput {
   itemId: string;
-  name: string;
-  image?: string;
-  price?: number;
-  category?: string;
 }
 
 export const getFavoritesByUserId = async (userId: string) => {
-  return (prisma as any).favorite.findMany({
+  const favorites = await (prisma as any).favorite.findMany({
     where: { userId },
+    include: {
+      item: true,
+    },
     orderBy: { createdAt: "desc" },
   });
+
+  // Filter out any favorites where the item was deleted
+  return favorites.filter((fav: any) => !!fav.item);
 };
 
 export const addFavorite = async (userId: string, data: FavoriteInput) => {
@@ -28,26 +30,22 @@ export const addFavorite = async (userId: string, data: FavoriteInput) => {
     data: {
       userId,
       itemId: data.itemId,
-      name: data.name,
-      image: data.image ?? null,
-      price: data.price ?? null,
-      category: data.category ?? null,
     },
   });
 };
 
 export const removeFavorite = async (userId: string, itemId: string) => {
-  const existing = await (prisma as any).favorite.findFirst({
+  const favorite = await (prisma as any).favorite.findFirst({
     where: { userId, itemId },
   });
 
-  if (!existing) {
+  if (!favorite) {
     return null;
   }
 
   await (prisma as any).favorite.delete({
-    where: { id: existing.id },
+    where: { id: favorite.id },
   });
 
-  return existing;
+  return favorite;
 };
