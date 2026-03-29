@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-export type UserRole = "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "CASHIER";
+export type UserRole = "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "CASHIER" | "CUSTOMER";
 export type UserStatus = "PENDING" | "ACTIVE" | "SUSPENDED";
 export type UserAccountType = "ADMIN_PORTAL" | "LOCAL_USER";
 

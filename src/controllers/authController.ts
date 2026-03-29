@@ -9,7 +9,7 @@ import {
   verifyPassword,
 } from "../utils/security";
 
-const VALID_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"];
+const VALID_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER", "CUSTOMER"];
 const VALID_STATUSES: UserStatus[] = ["PENDING", "ACTIVE", "SUSPENDED"];
 const ADMIN_ACCOUNT_TYPE: UserAccountType = "ADMIN_PORTAL";
 const CUSTOMER_ACCOUNT_TYPE: UserAccountType = "LOCAL_USER";
@@ -59,7 +59,7 @@ const registerWithAccountType = async (
       return res.status(400).json({ message: 'User already exists' });
     }
 
-    const role: UserRole = "CASHIER";
+    const role: UserRole = accountType === CUSTOMER_ACCOUNT_TYPE ? "CUSTOMER" : "CASHIER";
     const status: UserStatus =
       accountType === ADMIN_ACCOUNT_TYPE ? "PENDING" : "ACTIVE";
     const permissions: string[] = [];
@@ -213,6 +213,16 @@ export const updateUserAccess = async (
         permissions.some((permission) => typeof permission !== "string"))
     ) {
       return res.status(400).json({ message: "permissions must be a string array" });
+    }
+
+    const userToUpdate = await userService.getUserById(req.params.id as string);
+    if (!userToUpdate) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Prevent changing role for CUSTOMERS or LOCAL_USER accounts
+    if (userToUpdate.accountType === CUSTOMER_ACCOUNT_TYPE && role) {
+      return res.status(400).json({ message: "Cannot change role for customers" });
     }
 
     const updatedUser = await userService.updateUserAccess(req.params.id as string, {
