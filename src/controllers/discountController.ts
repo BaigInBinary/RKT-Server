@@ -142,6 +142,19 @@ export const getDiscounts = async (
   }
 };
 
+export const getPublicDiscounts = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const discounts = await discountService.getPublicActiveDiscounts();
+    res.status(200).json(discounts);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getDiscount = async (
   req: Request,
   res: Response,

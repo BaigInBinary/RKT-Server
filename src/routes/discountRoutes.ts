@@ -4,6 +4,10 @@ import { authenticate, authorizeAccountTypes, authorizeRoles } from "../middlewa
 
 const router: Router = express.Router();
 
+// Public routes
+router.get("/catalog", discountController.getPublicDiscounts);
+
+// Protected routes (admin only)
 router.use(authenticate, authorizeAccountTypes("ADMIN_PORTAL"));
 
 router.get(

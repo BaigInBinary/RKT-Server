@@ -321,6 +321,25 @@ export const getAllDiscounts = async (): Promise<Discount[]> => {
   });
 };
 
+export const getPublicActiveDiscounts = async (): Promise<Discount[]> => {
+  const at = new Date();
+  return prisma.discount.findMany({
+    where: {
+      isActive: true,
+      scope: "ALL",
+      AND: [
+        {
+          OR: [{ startDate: null }, { startDate: { lte: at } }],
+        },
+        {
+          OR: [{ endDate: null }, { endDate: { gte: at } }],
+        },
+      ],
+    },
+    orderBy: { createdAt: "asc" },
+  });
+};
+
 export const getDiscountById = async (id: string): Promise<Discount | null> => {
   return prisma.discount.findUnique({ where: { id } });
 };
