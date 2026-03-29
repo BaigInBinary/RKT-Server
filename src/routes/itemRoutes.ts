@@ -9,19 +9,9 @@ router.get("/catalog", itemController.getCatalogItems);
 router.get("/catalog/:id", itemController.getCatalogItem);
 router.get("/batch", itemController.getBatchCatalogItems);
 router.get("/top-selling", itemController.getTopSellingItems);
+router.get("/new-arrival", itemController.getNewArrivals);
 
 router.use(authenticate, authorizeAccountTypes("ADMIN_PORTAL"));
-
-router.get(
-  '/',
-  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"),
-  itemController.getItems,
-);
-router.get(
-  "/new-arrival",
-  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"),
-  itemController.getNewArrivals,
-);
 router.get(
   '/alerts',
   authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),

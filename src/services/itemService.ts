@@ -436,9 +436,17 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
       price: true,
       soldCount: true,
       quantity: true,
+      subCategoryId: true,
     },
   });
   const itemById = new Map(items.map((item) => [item.id, item]));
+
+  const activeDiscounts = await prisma.discount.findMany({
+    where: { isActive: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const now = new Date();
+  const discounts = activeDiscounts.filter((d) => isDiscountActive(d, now));
 
   return {
     data: ranked
@@ -447,13 +455,22 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
         if (!item) {
           return null;
         }
+        const pricing = applyListingDiscounts(
+          item.price,
+          {
+            id: item.id,
+            category: item.category,
+            subCategoryId: item.subCategoryId,
+          },
+          discounts,
+        );
         return {
           id: item.id,
           name: item.name,
           sku: item.sku,
           category: item.category,
           imageUrl: item.imageUrl,
-          price: item.price,
+          pricing,
           quantity: item.quantity,
           soldLastHours: entry.sold,
           totalSold: item.soldCount,
@@ -468,10 +485,43 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
   };
 };
 
-export const getNewArrivals = async (): Promise<Item[]> => {
-  return await prisma.item.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 8,
+export const getNewArrivals = async () => {
+  const [items, activeDiscounts] = await prisma.$transaction([
+    prisma.item.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 8,
+    }),
+    prisma.discount.findMany({
+      where: { isActive: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+
+  const now = new Date();
+  const discounts = activeDiscounts.filter((discount) => isDiscountActive(discount, now));
+
+  return items.map((item) => {
+    const pricing = applyListingDiscounts(
+      item.price,
+      {
+        id: item.id,
+        category: item.category,
+        subCategoryId: item.subCategoryId,
+      },
+      discounts,
+    );
+
+    return {
+      id: item.id,
+      name: item.name,
+      sku: item.sku,
+      category: item.category,
+      imageUrl: item.imageUrl,
+      pricing,
+      quantity: item.quantity,
+      inStock: item.quantity > 0,
+      createdAt: item.createdAt,
+    };
   });
 };
 
