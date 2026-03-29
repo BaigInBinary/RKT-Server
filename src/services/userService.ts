@@ -104,3 +104,8 @@ export const updateUserById = async (
     data,
   } as any);
 };
+export const deleteUser = async (id: string): Promise<void> => {
+  await prisma.user.delete({
+    where: { id },
+  } as any);
+};

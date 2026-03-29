@@ -27,5 +27,12 @@ router.patch(
   authorizeRoles("SUPER_ADMIN"),
   authController.updateUserAccess,
 );
+router.delete(
+  "/users/:id",
+  authenticate,
+  authorizeAccountTypes("ADMIN_PORTAL"),
+  authorizeRoles("SUPER_ADMIN"),
+  authController.deleteUser,
+);
 
 export default router;

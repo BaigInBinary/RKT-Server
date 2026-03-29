@@ -236,3 +236,26 @@ export const updateUserAccess = async (
     next(error);
   }
 };
+
+export const deleteUser = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+
+    if (id === req.authUser?.sub) {
+      return res.status(400).json({ message: "You cannot delete your own account" });
+    }
+
+    await userService.deleteUser(id as string);
+    return res.status(200).json({ message: "User deleted successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
