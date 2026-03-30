@@ -16,6 +16,15 @@ export interface CreateSaleInput {
   discount: number;
   total: number;
   customerName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  shippingAddress?: string;
+  city?: string;
+  postalCode?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  deliveryCharge?: number;
+  txnRefNo?: string;
   date?: Date;
 }
 
@@ -26,6 +35,15 @@ export interface UpdateSaleInput {
   discount: number;
   total: number;
   customerName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  shippingAddress?: string;
+  city?: string;
+  postalCode?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  deliveryCharge?: number;
+  txnRefNo?: string;
   date?: Date;
 }
 
@@ -120,6 +138,15 @@ export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
         discount: data.discount,
         total: data.total,
         customerName: data.customerName,
+        customerEmail: data.customerEmail,
+        customerPhone: data.customerPhone,
+        shippingAddress: data.shippingAddress,
+        city: data.city,
+        postalCode: data.postalCode,
+        paymentMethod: data.paymentMethod,
+        paymentStatus: data.paymentStatus,
+        deliveryCharge: data.deliveryCharge,
+        txnRefNo: data.txnRefNo,
         date: saleDate,
       },
     });
@@ -228,6 +255,15 @@ export const updateSale = async (
         discount: data.discount,
         total: data.total,
         customerName: data.customerName,
+        customerEmail: data.customerEmail,
+        customerPhone: data.customerPhone,
+        shippingAddress: data.shippingAddress,
+        city: data.city,
+        postalCode: data.postalCode,
+        paymentMethod: data.paymentMethod,
+        paymentStatus: data.paymentStatus,
+        deliveryCharge: data.deliveryCharge,
+        txnRefNo: data.txnRefNo,
         date: nextSaleDate,
       },
     });
@@ -270,6 +306,21 @@ export const deleteSale = async (id: string): Promise<void> => {
     }
 
     await tx.sale.delete({ where: { id } });
+  });
+};
+
+export const getSaleByTxnRefNo = async (txnRefNo: string): Promise<Sale | null> => {
+  return await prisma.sale.findUnique({
+    where: { txnRefNo },
+  });
+};
+
+export const updatePaymentStatus = async (txnRefNo: string, status: string): Promise<Sale> => {
+  return await prisma.sale.update({
+    where: { txnRefNo },
+    data: {
+      paymentStatus: status,
+    },
   });
 };
 
