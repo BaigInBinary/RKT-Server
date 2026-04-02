@@ -28,6 +28,16 @@ router.get(
   authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
   saleController.getAnalytics,
 );
+router.get(
+  '/orders',
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"),
+  saleController.getOrders,
+);
+router.patch(
+  '/orders/:id/status',
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
+  saleController.updateOrderStatus,
+);
 
 router.put(
   '/:id',

@@ -102,3 +102,37 @@ export const deleteSale = async (req: Request, res: Response, next: NextFunction
     next(error);
   }
 };
+
+export const getOrders = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const orders = await saleService.getAllOrders();
+    res.status(200).json(orders);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateOrderStatus = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const orderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { courierStatus, paymentStatus } = req.body as {
+      courierStatus?: string;
+      paymentStatus?: string;
+    };
+
+    const VALID_COURIER_STATUSES = ["Pending", "Booked", "In Transit", "Out for Delivery", "Delivered", "Returned", "Cancelled"];
+    const VALID_PAYMENT_STATUSES = ["pending", "paid", "failed", "refunded"];
+
+    if (courierStatus && !VALID_COURIER_STATUSES.includes(courierStatus)) {
+      return res.status(400).json({ message: `Invalid courierStatus. Must be one of: ${VALID_COURIER_STATUSES.join(", ")}` });
+    }
+    if (paymentStatus && !VALID_PAYMENT_STATUSES.includes(paymentStatus)) {
+      return res.status(400).json({ message: `Invalid paymentStatus. Must be one of: ${VALID_PAYMENT_STATUSES.join(", ")}` });
+    }
+
+    const order = await saleService.updateOrderStatus(orderId, { courierStatus, paymentStatus });
+    res.status(200).json(order);
+  } catch (error) {
+    next(error);
+  }
+};

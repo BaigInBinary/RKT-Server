@@ -330,6 +330,36 @@ export const updatePaymentStatus = async (txnRefNo: string, status: string): Pro
   });
 };
 
+// Returns only online orders (i.e. those submitted from the main site,
+// identified by having a shippingAddress set).
+export const getAllOrders = async (): Promise<Sale[]> => {
+  return await prisma.sale.findMany({
+    where: {
+      shippingAddress: { not: null },
+    },
+    orderBy: { date: "desc" },
+  });
+};
+
+export interface UpdateOrderStatusInput {
+  courierStatus?: string;
+  paymentStatus?: string;
+}
+
+// Update courier / payment status without touching stock or analytics.
+export const updateOrderStatus = async (
+  id: string,
+  data: UpdateOrderStatusInput,
+): Promise<Sale> => {
+  return await prisma.sale.update({
+    where: { id },
+    data: {
+      ...(data.courierStatus !== undefined && { courierStatus: data.courierStatus }),
+      ...(data.paymentStatus !== undefined && { paymentStatus: data.paymentStatus }),
+    },
+  });
+};
+
 export const updateSaleTracking = async (
   id: string,
   trackingNumber: string,
