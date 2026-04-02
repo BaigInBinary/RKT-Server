@@ -16,7 +16,7 @@ export interface AuthTokenPayload {
 
 const HEADER = { alg: "HS256", typ: "JWT" } as const;
 const HASH_PREFIX = "scrypt";
-const TOKEN_EXPIRY_SECONDS = 60 * 60 * 12;
+const TOKEN_EXPIRY_SECONDS = 60 * 60 * 24 * 30; // 30 Days expiry
 
 const getSecret = (): string => {
   const secret = process.env.JWT_SECRET;
