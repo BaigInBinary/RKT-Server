@@ -19,6 +19,7 @@
   "license": "ISC",
   "dependencies": {
     "@prisma/client": "^5.8.0",
+    "axios": "^1.14.0",
     "cloudinary": "^2.9.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",

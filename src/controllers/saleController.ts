@@ -10,10 +10,61 @@ export const getSales = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
+import { bookLeopardsShipment } from '../services/leopardsService';
+
 export const createSale = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const sale = await saleService.createSale(req.body);
+    
+    // Automatically book shipment if shipping details are present
+    if (sale.customerName && sale.customerPhone && sale.shippingAddress && sale.city) {
+      try {
+        const weight = sale.items.reduce((sum, item) => sum + (item.quantity * 500), 0) || 500;
+        
+        const bookingResponse = await bookLeopardsShipment({
+          orderId: sale.id,
+          customerName: sale.customerName,
+          customerPhone: sale.customerPhone,
+          customerAddress: sale.shippingAddress,
+          city: sale.city,
+          amount: sale.total,
+          weight
+        });
+        
+        if (bookingResponse && bookingResponse.track_number) {
+          await saleService.updateSaleTracking(
+            sale.id, 
+            bookingResponse.track_number, 
+            "Booked",
+            bookingResponse.order_id // Assuming the response might have an internal ID, or just store track_number
+          );
+          sale.trackingNumber = bookingResponse.track_number;
+          sale.courierStatus = "Booked";
+        }
+      } catch (error) {
+        console.error("Failed to automatically book Leopards shipment:", error);
+      }
+    }
+
     res.status(201).json(sale);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getLatestCustomerSale = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = req.authUser;
+    if (!user || user.accountType !== "LOCAL_USER") {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const sale = await saleService.getLatestCustomerSale(user.email);
+    if (!sale) {
+      return res.status(404).json({ error: "No orders found" });
+    }
+
+    res.status(200).json(sale);
   } catch (error) {
     next(error);
   }

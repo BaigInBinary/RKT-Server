@@ -14,6 +14,7 @@ import siteContentRoutes from "./routes/siteContentRoutes";
 import collectionRoutes from "./routes/collectionRoutes";
 import deliveryRateRoutes from "./routes/deliveryRateRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
+import deliveryRoutes from "./routes/deliveryRoutes";
 
 dotenv.config();
 
@@ -41,6 +42,7 @@ app.use("/api/site-content", siteContentRoutes);
 app.use("/api/collections", collectionRoutes);
 app.use("/api/delivery-rate", deliveryRateRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/delivery", deliveryRoutes);
 
 // Error Handler
 app.use(errorHandler);

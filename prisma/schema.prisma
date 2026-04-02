@@ -162,6 +162,9 @@ model Sale {
   paymentStatus String     @default("pending")
   deliveryCharge Float      @default(0)
   txnRefNo     String?    @unique
+  trackingNumber String?   
+  courierStatus String?     @default("Pending")
+  bookingId    String?    
   createdAt    DateTime   @default(now())
 }
 

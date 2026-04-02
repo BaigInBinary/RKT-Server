@@ -4,6 +4,18 @@ import { authenticate, authorizeAccountTypes, authorizeRoles } from "../middlewa
 
 const router: Router = express.Router();
 
+router.post(
+  '/',
+  authenticate,
+  saleController.createSale,
+);
+
+router.get(
+  '/customer/latest',
+  authenticate,
+  saleController.getLatestCustomerSale,
+);
+
 router.use(authenticate, authorizeAccountTypes("ADMIN_PORTAL"));
 
 router.get(
@@ -16,11 +28,7 @@ router.get(
   authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
   saleController.getAnalytics,
 );
-router.post(
-  '/',
-  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"),
-  saleController.createSale,
-);
+
 router.put(
   '/:id',
   authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),

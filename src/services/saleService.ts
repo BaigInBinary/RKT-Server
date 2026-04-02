@@ -123,6 +123,12 @@ export const getAllSales = async (): Promise<Sale[]> => {
   });
 };
 
+export const getSaleById = async (id: string): Promise<Sale | null> => {
+  return await prisma.sale.findUnique({
+    where: { id },
+  });
+};
+
 export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
   // Use a transaction to ensure both sale creation and stock update succeed
   return await prisma.$transaction(async (tx) => {
@@ -321,6 +327,29 @@ export const updatePaymentStatus = async (txnRefNo: string, status: string): Pro
     data: {
       paymentStatus: status,
     },
+  });
+};
+
+export const updateSaleTracking = async (
+  id: string,
+  trackingNumber: string,
+  courierStatus: string,
+  bookingId?: string
+): Promise<Sale> => {
+  return await prisma.sale.update({
+    where: { id },
+    data: {
+      trackingNumber,
+      courierStatus,
+      bookingId,
+    },
+  });
+};
+
+export const getLatestCustomerSale = async (customerEmail: string): Promise<Sale | null> => {
+  return await prisma.sale.findFirst({
+    where: { customerEmail },
+    orderBy: { date: "desc" },
   });
 };
 
