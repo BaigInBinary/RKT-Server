@@ -15,7 +15,7 @@ export const getConfig = async (req: Request, res: Response, next: NextFunction)
 
 export const upsertConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { ratePerKg, minimumCharge, freeAboveOrderValue, isActive } = req.body;
+    const { ratePerKg, minimumCharge, freeAboveOrderValue, freeBelowWeightLimit, isActive } = req.body;
 
     if (ratePerKg === undefined || ratePerKg === null) {
       return res.status(400).json({ message: "ratePerKg is required" });
@@ -30,6 +30,10 @@ export const upsertConfig = async (req: Request, res: Response, next: NextFuncti
       freeAboveOrderValue:
         freeAboveOrderValue !== undefined && freeAboveOrderValue !== null && freeAboveOrderValue !== ""
           ? Number(freeAboveOrderValue)
+          : null,
+      freeBelowWeightLimit:
+        freeBelowWeightLimit !== undefined && freeBelowWeightLimit !== null && freeBelowWeightLimit !== ""
+          ? Number(freeBelowWeightLimit)
           : null,
       isActive: isActive !== undefined ? Boolean(isActive) : true,
     });

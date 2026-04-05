@@ -5,6 +5,7 @@ export interface DeliveryRateConfigInput {
   ratePerKg: number;
   minimumCharge: number;
   freeAboveOrderValue?: number | null;
+  freeBelowWeightLimit?: number | null;
   isActive?: boolean;
 }
 
@@ -16,6 +17,7 @@ export interface DeliveryChargeResult {
     ratePerKg: number;
     minimumCharge: number;
     freeAboveOrderValue: number | null;
+    freeBelowWeightLimit: number | null;
   };
 }
 
@@ -49,6 +51,7 @@ export const upsertConfig = async (
         ratePerKg: data.ratePerKg,
         minimumCharge: data.minimumCharge,
         freeAboveOrderValue: data.freeAboveOrderValue ?? null,
+        freeBelowWeightLimit: data.freeBelowWeightLimit ?? null,
         isActive: data.isActive ?? true,
       },
     });
@@ -59,6 +62,7 @@ export const upsertConfig = async (
       ratePerKg: data.ratePerKg,
       minimumCharge: data.minimumCharge,
       freeAboveOrderValue: data.freeAboveOrderValue ?? null,
+      freeBelowWeightLimit: data.freeBelowWeightLimit ?? null,
       isActive: data.isActive ?? true,
     },
   });
@@ -75,17 +79,23 @@ export const calculateDeliveryCharge = async (
       weightInGrams,
       deliveryCharge: 0,
       isFree: false,
-      config: { ratePerKg: 0, minimumCharge: 0, freeAboveOrderValue: null },
+      config: { ratePerKg: 0, minimumCharge: 0, freeAboveOrderValue: null, freeBelowWeightLimit: null },
     };
   }
 
-  // Check free delivery threshold
-  if (
+  // Check free delivery threshold (Value + Weight limit if set)
+  const meetsValueThreshold = 
     config.freeAboveOrderValue !== null &&
     config.freeAboveOrderValue !== undefined &&
     orderTotal !== undefined &&
-    orderTotal >= config.freeAboveOrderValue
-  ) {
+    orderTotal >= config.freeAboveOrderValue;
+
+  const meetsWeightLimit = 
+    config.freeBelowWeightLimit === null || 
+    config.freeBelowWeightLimit === undefined || 
+    (weightInGrams / 1000) <= config.freeBelowWeightLimit;
+
+  if (meetsValueThreshold && meetsWeightLimit) {
     return {
       weightInGrams,
       deliveryCharge: 0,
@@ -94,6 +104,7 @@ export const calculateDeliveryCharge = async (
         ratePerKg: config.ratePerKg,
         minimumCharge: config.minimumCharge,
         freeAboveOrderValue: config.freeAboveOrderValue,
+        freeBelowWeightLimit: config.freeBelowWeightLimit ?? null,
       },
     };
   }
@@ -109,6 +120,7 @@ export const calculateDeliveryCharge = async (
       ratePerKg: config.ratePerKg,
       minimumCharge: config.minimumCharge,
       freeAboveOrderValue: config.freeAboveOrderValue ?? null,
+      freeBelowWeightLimit: config.freeBelowWeightLimit ?? null,
     },
   };
 };

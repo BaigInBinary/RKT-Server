@@ -97,6 +97,7 @@ model DeliveryRateConfig {
   ratePerKg           Float
   minimumCharge       Float
   freeAboveOrderValue Float?
+  freeBelowWeightLimit Float?
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
