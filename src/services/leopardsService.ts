@@ -162,3 +162,71 @@ export const trackLeopardsShipment = async (trackingNumber: string) => {
         throw new Error(`Leopards Tracking Failed: ${error.message}`);
     }
 };
+
+export const getLeopardsTariff = async (destinationCityId: number, weightInGrams: number, codAmount: number = 0) => {
+    // If credentials are mock, return a mock tariff
+    if (LEOPARDS_API_KEY === "" || LEOPARDS_API_KEY === "YOUR_API_KEY") {
+        console.log(`[MOCK LEOPARDS] Calculating tariff for City ${destinationCityId}, Weight ${weightInGrams}g`);
+        // Mock logic: Base 250 + 50 per additional kg
+        const weightKg = weightInGrams / 1000;
+        const mockRate = 250 + (Math.max(0, Math.ceil(weightKg - 1)) * 50);
+        return {
+            status: 1,
+            tariff: mockRate,
+            message: "Mock tariff success"
+        };
+    }
+
+    try {
+        const response = await axios.get(`${LEOPARDS_API_URL}getTariffDetails/format/json/`, {
+            params: {
+                api_key: LEOPARDS_API_KEY,
+                api_password: LEOPARDS_API_PASSWORD,
+                origin_city: 4, // Faisalabad
+                destination_city: destinationCityId,
+                shipment_type: 1, // Overnight
+                packet_weight: weightInGrams / 1000, 
+                cod_amount: codAmount
+            }
+        });
+        
+        // Leopards V2 returns charges inside a packet_charges object
+        if (response.data && response.data.status == 1 && response.data.packet_charges) {
+            const pc = response.data.packet_charges;
+            // Sum up the relevant charges (they come as strings from Leopards)
+            const totalTariff = 
+                (parseFloat(pc.shipment_charges) || 0) + 
+                (parseFloat(pc.gst_amount) || 0) + 
+                (parseFloat(pc.fuel_surcharge_amount) || 0) +
+                (parseFloat(pc.cash_handling) || 0);
+
+            return {
+                status: 1,
+                tariff: totalTariff,
+                message: response.data.message,
+                details: pc // Keep details for debugging
+            };
+        }
+
+        console.warn(`[LEOPARDS] Tariff API failed or keys invalid. Falling back to MOCK. Message:`, response.data?.error || response.data?.message);
+        
+        // Manual Mock Fallback
+        const weightKg = weightInGrams / 1000;
+        const mockRate = 250 + (Math.max(0, Math.ceil(weightKg - 1)) * 50);
+        return {
+            status: 1,
+            tariff: mockRate,
+            message: "Mock tariff fallback (Production keys required for live rates)"
+        };
+    } catch (error: any) {
+        console.error("Leopards Tariff API Error:", error.message);
+        // Even on network error, return mock so checkout doesn't break
+        const weightKg = weightInGrams / 1000;
+        const mockRate = 250 + (Math.max(0, Math.ceil(weightKg - 1)) * 50);
+        return {
+            status: 1,
+            tariff: mockRate,
+            message: "Mock tariff fallback (Connection failed)"
+        };
+    }
+};
