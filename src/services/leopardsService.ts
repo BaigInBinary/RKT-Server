@@ -270,3 +270,78 @@ export const getLeopardsTariff = async (destinationCityId: number, weightInGrams
         };
     }
 };
+
+export const getLeopardsShipmentHistory = async (startDate?: string, endDate?: string) => {
+    // Refresh config from DB
+    await fetchLeopardsConfig();
+
+    // Default to last 30 days if no range provided
+    const end = endDate || new Date().toISOString().split('T')[0];
+    const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    // If credentials are mock, return mock shipment list
+    if (LEOPARDS_API_KEY === "" || LEOPARDS_API_KEY === "YOUR_API_KEY") {
+        console.log(`[MOCK LEOPARDS] Fetching shipment history from ${start} to ${end}`);
+        return {
+            status: 1,
+            shipments: [
+                { 
+                    track_number: "LEO-123456", 
+                    order_id: "EBED9F", 
+                    booked_date: "2026-03-31", 
+                    consignee_name: "Muhammad Baig",
+                    destination_city: "Faisalabad",
+                    status: "Delivered",
+                    shipment_type: "Overnight"
+                },
+                { 
+                    track_number: "LEO-789012", 
+                    order_id: "69B2BA", 
+                    booked_date: "2026-04-01", 
+                    consignee_name: "Usman Ahmed",
+                    destination_city: "Lahore",
+                    status: "In Transit",
+                    shipment_type: "Overnight"
+                },
+                { 
+                    track_number: "LEO-345678", 
+                    order_id: "7AC3D1", 
+                    booked_date: "2026-04-05", 
+                    consignee_name: "Ali Raza",
+                    destination_city: "Islamabad",
+                    status: "Booked",
+                    shipment_type: "Overland"
+                }
+            ]
+        };
+    }
+
+    try {
+        console.log(`[LEOPARDS] Fetching shipment history from: ${LEOPARDS_API_URL}getBookedPacketLastStatuses/format/json/`);
+        const response = await axios.get(`${LEOPARDS_API_URL}getBookedPacketLastStatuses/format/json/`, {
+            params: {
+                api_key: LEOPARDS_API_KEY,
+                api_password: LEOPARDS_API_PASSWORD,
+                start_date: start,
+                end_date: end
+            }
+        });
+
+        // Leopards returns the list under a specific key, we'll normalize it
+        if (response.data && response.data.status == 1) {
+            return {
+                status: 1,
+                shipments: response.data.booked_packet_list || []
+            };
+        }
+
+        return {
+            status: 0,
+            message: response.data?.message || "Failed to fetch shipment history",
+            shipments: []
+        };
+    } catch (error: any) {
+        console.error("Leopards History API Error:", error.message);
+        throw new Error(`Leopards History Failed: ${error.message}`);
+    }
+};
