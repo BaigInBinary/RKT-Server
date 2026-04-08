@@ -1,8 +1,8 @@
 import axios from "axios";
 
-const LEOPARDS_API_KEY = process.env.LEOPARDS_API_KEY || "xxxxx";
-const LEOPARDS_API_PASSWORD = process.env.LEOPARDS_API_PASSWORD || "xxxxx";
-const LEOPARDS_API_URL = process.env.LEOPARDS_API_URL || "https://merchantapi.leopardscourier.com/api";
+const LEOPARDS_API_KEY = process.env.LEOPARDS_API_KEY || "";
+const LEOPARDS_API_PASSWORD = process.env.LEOPARDS_API_KEY || "";
+const LEOPARDS_API_URL = process.env.LEOPARDS_API_KEY || "";
 
 export interface LeopardsBookingData {
     orderId: string;
@@ -16,7 +16,7 @@ export interface LeopardsBookingData {
 
 export const bookLeopardsShipment = async (data: LeopardsBookingData) => {
     // If credentials are mock, return a mock success
-    if (LEOPARDS_API_KEY === "xxxxx") {
+    if (LEOPARDS_API_KEY === "") {
         console.log(`[MOCK LEOPARDS] Booking shipment for Order ${data.orderId}`);
         return {
             status: 1,
@@ -46,7 +46,7 @@ export const bookLeopardsShipment = async (data: LeopardsBookingData) => {
 
 export const trackLeopardsShipment = async (trackingNumber: string) => {
     // If credentials are mock, return mock tracking
-    if (LEOPARDS_API_KEY === "xxxxx" || trackingNumber.startsWith("LEO-")) {
+    if (LEOPARDS_API_KEY === "" || trackingNumber.startsWith("LEO-")) {
         console.log(`[MOCK LEOPARDS] Tracking shipment ${trackingNumber}`);
         return {
             status: 1,
