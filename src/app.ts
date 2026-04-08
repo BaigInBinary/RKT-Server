@@ -15,6 +15,7 @@ import deliveryRateRoutes from "./routes/deliveryRateRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
 import deliveryRoutes from "./routes/deliveryRoutes";
 import leopardsRoutes from "./routes/leopardsRoutes";
+import leopardsConfigRoutes from "./routes/leopardsConfigRoutes";
 
 const app: Express = express();
 
@@ -42,6 +43,7 @@ app.use("/api/delivery-rate", deliveryRateRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/delivery", deliveryRoutes);
 app.use("/api/leopards", leopardsRoutes);
+app.use("/api/leopards-config", leopardsConfigRoutes);
 
 // Error Handler
 app.use(errorHandler);

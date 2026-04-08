@@ -1,8 +1,28 @@
 import axios from "axios";
+import { PrismaClient } from "@prisma/client";
 
-const LEOPARDS_API_KEY = process.env.LEOPARDS_API_KEY || "";
-const LEOPARDS_API_PASSWORD = process.env.LEOPARDS_API_PASSWORD || "";
-const LEOPARDS_API_URL = process.env.LEOPARDS_API_URL || "https://merchantapistaging.leopardscourier.com/api/";
+const prisma = new PrismaClient();
+
+// Initial defaults from .env
+let LEOPARDS_API_KEY = process.env.LEOPARDS_API_KEY || "";
+let LEOPARDS_API_PASSWORD = process.env.LEOPARDS_API_PASSWORD || "";
+let LEOPARDS_API_URL = process.env.LEOPARDS_API_URL || "https://merchantapistaging.leopardscourier.com/api/";
+
+// Helper to get latest config from DB
+const fetchLeopardsConfig = async () => {
+    try {
+        const config = await prisma.leopardsConfig.findFirst();
+        if (config) {
+            LEOPARDS_API_KEY = config.apiKey;
+            LEOPARDS_API_PASSWORD = config.apiPassword;
+            LEOPARDS_API_URL = config.baseUrl;
+            return config;
+        }
+    } catch (err) {
+        console.error("Failed to fetch Leopards config from DB, using .env defaults");
+    }
+    return null;
+};
 
 // In-memory cache for cities
 interface CacheStore {
@@ -43,6 +63,9 @@ export interface LeopardsBookingData {
 }
 
 export const getAllLeopardsCities = async (): Promise<any[]> => {
+    // Refresh config from DB before fetching
+    await fetchLeopardsConfig();
+
     // Return cache if it's still valid
     if (cache.cities.length > 0 && (Date.now() - cache.timestamp) < CACHE_DURATION) {
         return cache.cities;
@@ -92,6 +115,9 @@ const resolveCityToId = async (cityName: string): Promise<number | null> => {
 };
 
 export const bookLeopardsShipment = async (data: LeopardsBookingData) => {
+    // Refresh config from DB
+    const config = await fetchLeopardsConfig();
+
     // If credentials are mock, return a mock success
     if (LEOPARDS_API_KEY === "" || LEOPARDS_API_KEY === "YOUR_API_KEY") {
         console.log(`[MOCK LEOPARDS] Booking shipment for Order ${data.orderId}`);
@@ -134,6 +160,9 @@ export const bookLeopardsShipment = async (data: LeopardsBookingData) => {
 };
 
 export const trackLeopardsShipment = async (trackingNumber: string) => {
+    // Refresh config from DB
+    await fetchLeopardsConfig();
+
     // If credentials are mock, return mock tracking
     if (LEOPARDS_API_KEY === "" || LEOPARDS_API_KEY === "YOUR_API_KEY" || trackingNumber.startsWith("LEO-")) {
         console.log(`[MOCK LEOPARDS] Tracking shipment ${trackingNumber}`);
@@ -164,6 +193,13 @@ export const trackLeopardsShipment = async (trackingNumber: string) => {
 };
 
 export const getLeopardsTariff = async (destinationCityId: number, weightInGrams: number, codAmount: number = 0) => {
+    // Refresh config from DB
+    const config = await fetchLeopardsConfig();
+
+    // Use DB config values for origin/shipment type if available
+    const originCity = config?.originCity || "4";
+    const shipmentType = config?.shipmentType || "1";
+
     // If credentials are mock, return a mock tariff
     if (LEOPARDS_API_KEY === "" || LEOPARDS_API_KEY === "YOUR_API_KEY") {
         console.log(`[MOCK LEOPARDS] Calculating tariff for City ${destinationCityId}, Weight ${weightInGrams}g`);
@@ -182,9 +218,9 @@ export const getLeopardsTariff = async (destinationCityId: number, weightInGrams
             params: {
                 api_key: LEOPARDS_API_KEY,
                 api_password: LEOPARDS_API_PASSWORD,
-                origin_city: 4, // Faisalabad
+                origin_city: originCity,
                 destination_city: destinationCityId,
-                shipment_type: 1, // Overnight
+                shipment_type: shipmentType,
                 packet_weight: weightInGrams / 1000, 
                 cod_amount: codAmount
             }
