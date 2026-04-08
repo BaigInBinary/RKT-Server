@@ -1,6 +1,5 @@
 import express, { type Express } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { errorHandler } from './middlewares/errorMiddleware';
 
 import authRoutes from './routes/authRoutes';
@@ -15,8 +14,7 @@ import collectionRoutes from "./routes/collectionRoutes";
 import deliveryRateRoutes from "./routes/deliveryRateRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
 import deliveryRoutes from "./routes/deliveryRoutes";
-
-dotenv.config();
+import leopardsRoutes from "./routes/leopardsRoutes";
 
 const app: Express = express();
 
@@ -43,6 +41,7 @@ app.use("/api/collections", collectionRoutes);
 app.use("/api/delivery-rate", deliveryRateRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/delivery", deliveryRoutes);
+app.use("/api/leopards", leopardsRoutes);
 
 // Error Handler
 app.use(errorHandler);
