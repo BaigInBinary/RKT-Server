@@ -5,21 +5,29 @@ const LEOPARDS_API_PASSWORD = process.env.LEOPARDS_API_PASSWORD || "";
 const LEOPARDS_API_URL = process.env.LEOPARDS_API_URL || "https://merchantapistaging.leopardscourier.com/api/";
 
 // In-memory cache for cities
-let leopardsCitiesCache: any[] = [];
-let leopardsCitiesCacheTimestamp: number = 0;
+interface CacheStore {
+    cities: any[];
+    timestamp: number;
+}
+
+const cache: CacheStore = {
+    cities: [],
+    timestamp: 0
+};
+
 const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
 
 const MOCK_CITIES = [
-    { id: 1, name: "Karachi" }, 
-    { id: 2, name: "Lahore" }, 
-    { id: 3, name: "Islamabad" },
-    { id: 4, name: "Faisalabad" },
-    { id: 5, name: "Rawalpindi" },
-    { id: 6, name: "Multan" },
-    { id: 7, name: "Peshawar" },
-    { id: 8, name: "Quetta" },
-    { id: 9, name: "Sialkot" },
-    { id: 10, name: "Gujranwala" }
+    { id: "1", name: "Karachi" }, 
+    { id: "2", name: "Lahore" }, 
+    { id: "3", name: "Islamabad" },
+    { id: "4", name: "Faisalabad" },
+    { id: "5", name: "Rawalpindi" },
+    { id: "6", name: "Multan" },
+    { id: "7", name: "Peshawar" },
+    { id: "8", name: "Quetta" },
+    { id: "9", name: "Sialkot" },
+    { id: "10", name: "Gujranwala" }
 ];
 
 export interface LeopardsBookingData {
@@ -36,8 +44,8 @@ export interface LeopardsBookingData {
 
 export const getAllLeopardsCities = async (): Promise<any[]> => {
     // Return cache if it's still valid
-    if (leopardsCitiesCache.length > 0 && (Date.now() - leopardsCitiesCacheTimestamp) < CACHE_DURATION) {
-        return leopardsCitiesCache;
+    if (cache.cities.length > 0 && (Date.now() - cache.timestamp) < CACHE_DURATION) {
+        return cache.cities;
     }
 
     // Use mock data if no API key is provided
@@ -59,10 +67,10 @@ export const getAllLeopardsCities = async (): Promise<any[]> => {
         console.log(`[LEOPARDS] Response Status: ${response.status}`);
         
         if (response.data && response.data.status == 1 && response.data.city_list && Array.isArray(response.data.city_list)) {
-            leopardsCitiesCache = response.data.city_list;
-            leopardsCitiesCacheTimestamp = Date.now();
-            console.log(`[LEOPARDS] Successfully cached ${leopardsCitiesCache.length} cities.`);
-            return leopardsCitiesCache;
+            cache.cities = response.data.city_list;
+            cache.timestamp = Date.now();
+            console.log(`[LEOPARDS] Successfully cached ${cache.cities.length} cities.`);
+            return cache.cities;
         }
         
         console.warn(`[LEOPARDS] API returned error or invalid format. Falling back to MOCK. Data:`, JSON.stringify(response.data).substring(0, 200));
@@ -73,14 +81,14 @@ export const getAllLeopardsCities = async (): Promise<any[]> => {
             console.error("API Response Error Status:", error.response.status);
             console.error("API Response Error Data:", error.response.data);
         }
-        return leopardsCitiesCache.length > 0 ? leopardsCitiesCache : MOCK_CITIES; 
+        return cache.cities.length > 0 ? cache.cities : MOCK_CITIES; 
     }
 };
 
 const resolveCityToId = async (cityName: string): Promise<number | null> => {
     const cities = await getAllLeopardsCities();
     const city = cities.find((c: any) => c.name && c.name.toLowerCase() === cityName.toLowerCase());
-    return city ? parseInt(city.id) : null;
+    return city ? parseInt(String(city.id)) : null;
 };
 
 export const bookLeopardsShipment = async (data: LeopardsBookingData) => {

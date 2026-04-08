@@ -153,12 +153,16 @@ export const getBatchCatalogItems = async (
   next: NextFunction,
 ) => {
   try {
-    const ids = getStringList(req.query.ids);
-    if (!ids || ids.length === 0) {
+    const rawIds = getStringList(req.query.ids) || [];
+    // Prisma on MongoDB expects a valid 24-character hex string as ObjectID.
+    // If we pass an invalid ID, it will throw a 500 error.
+    const validIds = rawIds.filter((id) => /^[0-9a-fA-F]{24}$/.test(id));
+
+    if (validIds.length === 0) {
       return res.status(200).json([]);
     }
 
-    const items = await itemService.getMultipleCatalogItemsByIds(ids);
+    const items = await itemService.getMultipleCatalogItemsByIds(validIds);
     return res.status(200).json(items);
   } catch (error) {
     next(error);
