@@ -275,13 +275,10 @@ export const getLeopardsShipmentHistory = async (startDate?: string, endDate?: s
     // Refresh config from DB
     await fetchLeopardsConfig();
 
-    // Default to last 30 days if no range provided
-    const end = endDate || new Date().toISOString().split('T')[0];
-    const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
     // If credentials are mock, return mock shipment list
     if (LEOPARDS_API_KEY === "" || LEOPARDS_API_KEY === "YOUR_API_KEY") {
-        console.log(`[MOCK LEOPARDS] Fetching shipment history from ${start} to ${end}`);
+        const dateRangeStr = startDate && endDate ? `${startDate} to ${endDate}` : "Full History";
+        console.log(`[MOCK LEOPARDS] Fetching shipment history: ${dateRangeStr}`);
         return {
             status: 1,
             shipments: [
@@ -318,13 +315,16 @@ export const getLeopardsShipmentHistory = async (startDate?: string, endDate?: s
 
     try {
         console.log(`[LEOPARDS] Fetching shipment history from: ${LEOPARDS_API_URL}getBookedPacketLastStatuses/format/json/`);
+        
+        const params: any = {
+            api_key: LEOPARDS_API_KEY,
+            api_password: LEOPARDS_API_PASSWORD
+        };
+        if (startDate) params.start_date = startDate;
+        if (endDate) params.end_date = endDate;
+
         const response = await axios.get(`${LEOPARDS_API_URL}getBookedPacketLastStatuses/format/json/`, {
-            params: {
-                api_key: LEOPARDS_API_KEY,
-                api_password: LEOPARDS_API_PASSWORD,
-                start_date: start,
-                end_date: end
-            }
+            params
         });
 
         // Leopards returns the list under a specific key, we'll normalize it
