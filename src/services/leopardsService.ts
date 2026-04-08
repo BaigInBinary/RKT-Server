@@ -90,13 +90,17 @@ export const getAllLeopardsCities = async (): Promise<any[]> => {
         console.log(`[LEOPARDS] Response Status: ${response.status}`);
         
         if (response.data && response.data.status == 1 && response.data.city_list && Array.isArray(response.data.city_list)) {
-            cache.cities = response.data.city_list;
+            // Map Leopards API keys (city_id, city_name) to standard keys (id, name)
+            cache.cities = response.data.city_list.map((c: any) => ({
+                id: String(c.city_id || c.id),
+                name: c.city_name || c.name
+            }));
             cache.timestamp = Date.now();
             console.log(`[LEOPARDS] Successfully cached ${cache.cities.length} cities.`);
             return cache.cities;
         }
         
-        console.warn(`[LEOPARDS] API returned error or invalid format. Falling back to MOCK. Data:`, JSON.stringify(response.data).substring(0, 200));
+        console.warn(`[LEOPARDS] API returned error or invalid format. Falling back to MOCK.`);
         return MOCK_CITIES;
     } catch (error: any) {
         console.error("Failed to fetch Leopards cities:", error.message);
