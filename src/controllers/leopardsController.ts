@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { getAllLeopardsCities, getLeopardsTariff, getLeopardsShipmentHistory } from '../services/leopardsService';
+import { getAllLeopardsCities, getLeopardsTariff, getLeopardsShipmentHistory, getLeopardsPaymentDetails, getLeopardsShipmentByOrderIds } from '../services/leopardsService';
 
 export const getCities = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -30,6 +30,32 @@ export const getShipmentHistory = async (req: Request, res: Response, next: Next
     const { startDate, endDate } = req.query;
     const history = await getLeopardsShipmentHistory(startDate as string, endDate as string);
     res.status(200).json(history);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPaymentDetails = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { cnNumbers } = req.query;
+    if (!cnNumbers) {
+      return res.status(400).json({ message: "CN Numbers are required" });
+    }
+    const result = await getLeopardsPaymentDetails(cnNumbers as string);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getShipmentDetailsByOrder = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { orderIds } = req.body;
+    if (!orderIds || !Array.isArray(orderIds)) {
+      return res.status(400).json({ message: "Order IDs (array) are required" });
+    }
+    const result = await getLeopardsShipmentByOrderIds(orderIds);
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }

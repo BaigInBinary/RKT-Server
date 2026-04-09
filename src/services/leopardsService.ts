@@ -363,6 +363,36 @@ export const getLeopardsShipmentHistory = async (startDate?: string, endDate?: s
     }
 };
 
+export const getLeopardsPaymentDetails = async (cnNumbers: string) => {
+    await fetchLeopardsConfig();
+    try {
+        console.log(`[LEOPARDS] Fetching payment details for CNs: ${cnNumbers}`);
+        const response = await axios.get(`${LEOPARDS_API_URL}getPaymentDetails/format/json/`, {
+            params: {
+                api_key: LEOPARDS_API_KEY,
+                api_password: LEOPARDS_API_PASSWORD,
+                cn_numbers: cnNumbers
+            }
+        });
+        return response.data;
+    } catch (error: any) {
+        console.error("Leopards Payment Details Error:", error.message);
+        return { status: 0, error: error.message };
+    }
+};
 
-
-
+export const getLeopardsShipmentByOrderIds = async (orderIds: string[]) => {
+    await fetchLeopardsConfig();
+    try {
+        console.log(`[LEOPARDS] Fetching shipment details for Order IDs: ${orderIds.join(', ')}`);
+        const response = await axios.post(`${LEOPARDS_API_URL}getShipmentDetailsByOrderID/format/json/`, {
+            api_key: LEOPARDS_API_KEY,
+            api_password: LEOPARDS_API_PASSWORD,
+            shipment_order_id: orderIds
+        });
+        return response.data;
+    } catch (error: any) {
+        console.error("Leopards Shipment Details Error:", error.message);
+        return { status: 0, error: error.message };
+    }
+};
