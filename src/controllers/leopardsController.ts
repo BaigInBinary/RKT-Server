@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { getAllLeopardsCities, getLeopardsTariff, getLeopardsShipmentHistory, getActivityLog } from '../services/leopardsService';
+import { getAllLeopardsCities, getLeopardsTariff, getLeopardsShipmentHistory } from '../services/leopardsService';
 
 export const getCities = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -29,16 +29,6 @@ export const getShipmentHistory = async (req: Request, res: Response, next: Next
   try {
     const { startDate, endDate } = req.query;
     const history = await getLeopardsShipmentHistory(startDate as string, endDate as string);
-    res.status(200).json(history);
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const getLeopardsActivityLog = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { startDate, endDate, cnNumber } = req.query;
-    const history = await getActivityLog(startDate as string, endDate as string, cnNumber as string);
     res.status(200).json(history);
   } catch (error) {
     next(error);
