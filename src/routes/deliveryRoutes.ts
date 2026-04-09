@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import * as saleService from "../services/saleService";
 import { trackLeopardsShipment } from "../services/leopardsService";
 
-const router = Router();
+const router: Router = Router();
 
 // GET /api/delivery/track/:orderId
 router.get("/track/:orderId", async (req: Request, res: Response) => {
