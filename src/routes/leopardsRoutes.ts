@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as leopardsController from '../controllers/leopardsController';
 
-const router = Router();
+const router: Router = Router();
 
 router.get('/cities', leopardsController.getCities);
 router.get('/shipments', leopardsController.getShipmentHistory);

@@ -1,8 +1,8 @@
-import express from "express";
+import express, { Router } from "express";
 import { initiateJazzCashMobileWallet, verifyJazzCashHash } from "../services/paymentService";
 import { createSale, updateSale } from "../services/saleService";
 
-const router = express.Router();
+const router: Router = express.Router();
 
 // POST /api/payments/jazzcash/initiate
 router.post("/jazzcash/initiate", async (req, res) => {
