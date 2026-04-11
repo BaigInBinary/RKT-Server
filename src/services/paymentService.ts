@@ -3,7 +3,10 @@ import crypto from "crypto";
 const JAZZCASH_MERCHANT_ID = process.env.JAZZCASH_MERCHANT_ID || "T00000";
 const JAZZCASH_PASSWORD = process.env.JAZZCASH_PASSWORD || "xxxxx";
 const JAZZCASH_SALT = process.env.JAZZCASH_SALT || "xxxxx";
-const JAZZCASH_RETURN_URL = process.env.JAZZCASH_RETURN_URL || "http://localhost:5000/api/payments/jazzcash/callback";
+const DEFAULT_LOCAL_PORT = process.env.PORT || "5000";
+const JAZZCASH_RETURN_URL =
+  process.env.JAZZCASH_RETURN_URL ||
+  `http://localhost:${DEFAULT_LOCAL_PORT}/api/payments/jazzcash/callback`;
 const JAZZCASH_API_URL = process.env.JAZZCASH_API_URL || "https://sandbox.jazzcash.com.pk/CustomerPortal/transactionmanagement/merchantform/";
 
 export interface JazzCashRequestData {
