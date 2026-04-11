@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { getAllLeopardsCities, getLeopardsTariff, getLeopardsShipmentHistory, getLeopardsPaymentDetails, getLeopardsShipmentByOrderIds } from '../services/leopardsService';
+import { getAllLeopardsCities, getLeopardsTariff, getLeopardsShipmentHistory, getLeopardsPaymentDetails, getLeopardsShipmentByOrderIds, bookLeopardsShipment } from '../services/leopardsService';
+import { getSaleById, updateSaleTracking } from '../services/saleService';
 
 export const getCities = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -56,6 +57,60 @@ export const getShipmentDetailsByOrder = async (req: Request, res: Response, nex
     }
     const result = await getLeopardsShipmentByOrderIds(orderIds);
     res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+export const bookShipment = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { orderId, weight, pieces } = req.body;
+    
+    if (!orderId || !weight) {
+      return res.status(400).json({ message: "Order ID and Weight are required" });
+    }
+
+    // 1. Fetch order details
+    const order = await getSaleById(orderId);
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // 2. Prepare booking data
+    const bookingData = {
+      orderId: order.id,
+      customerName: order.customerName || "Customer",
+      customerPhone: order.customerPhone || "",
+      customerAddress: order.shippingAddress || "",
+      city: order.city || "Karachi",
+      amount: order.total,
+      weight: parseFloat(weight),
+      pieces: parseInt(pieces) || 1
+    };
+
+    // 3. Call Leopards API
+    const result = await bookLeopardsShipment(bookingData);
+
+    if (result && result.status === 1) {
+      // 4. Update order with tracking number and new status
+      const updatedOrder = await updateSaleTracking(
+        order.id,
+        result.track_number,
+        "Booked",
+        result.track_number // Use CN as booking ID locally as well
+      );
+      
+      return res.status(200).json({
+        status: 1,
+        message: result.message || "Shipment booked successfully",
+        track_number: result.track_number,
+        order: updatedOrder
+      });
+    }
+
+    res.status(400).json({
+      status: 0,
+      message: result.error || result.message || "Leopards API failed to book shipment"
+    });
   } catch (error) {
     next(error);
   }
