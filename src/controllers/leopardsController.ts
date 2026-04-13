@@ -61,6 +61,7 @@ export const getShipmentDetailsByOrder = async (req: Request, res: Response, nex
     next(error);
   }
 };
+
 export const bookShipment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { orderId, weight, pieces } = req.body;
@@ -111,6 +112,70 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
       status: 0,
       message: result.error || result.message || "Leopards API failed to book shipment"
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const extractExcel = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    const { spawn } = require('child_process');
+    const path = require('path');
+    const fs = require('fs');
+
+    const filePath = req.file.path;
+    const scriptPath = path.join(__dirname, '../scripts/extract_excel.py');
+
+    // Call Python script
+    // Try to detect the correct python command (python, python3, or py)
+    const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+    const pythonProcess = spawn(pythonCommand, [scriptPath, filePath]);
+
+    let dataString = '';
+    let errorString = '';
+
+    pythonProcess.stdout.on('data', (data: Buffer) => {
+      dataString += data.toString();
+    });
+
+    pythonProcess.stderr.on('data', (data: Buffer) => {
+      errorString += data.toString();
+    });
+
+    pythonProcess.on('close', (code: number) => {
+      // Clean up uploaded file
+      try {
+        fs.unlinkSync(filePath);
+      } catch (err) {
+        console.error("Failed to delete temporary file:", err);
+      }
+
+      if (code !== 0) {
+        return res.status(500).json({
+          message: "Python script failed",
+          error: errorString || `Exit code ${code}`
+        });
+      }
+
+      try {
+        const result = JSON.parse(dataString);
+        if (result.error) {
+          return res.status(400).json({ message: result.error });
+        }
+        res.status(200).json(result);
+      } catch (e) {
+        res.status(500).json({
+          message: "Failed to parse Python output",
+          rawOutput: dataString,
+          error: e instanceof Error ? e.message : String(e)
+        });
+      }
+    });
+
   } catch (error) {
     next(error);
   }
