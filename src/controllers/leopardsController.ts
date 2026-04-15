@@ -246,6 +246,27 @@ export const getChequeRecords = async (
   }
 };
 
+export const getChequeRecordById = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const record = await (prisma as any).chequeRecord.findUnique({
+      where: { id },
+    });
+
+    if (!record) {
+      return res.status(404).json({ message: "Record not found" });
+    }
+
+    res.status(200).json(record);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const deleteChequeRecord = async (
   req: Request,
   res: Response,
