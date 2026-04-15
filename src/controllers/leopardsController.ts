@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { getAllLeopardsCities, getLeopardsTariff, getLeopardsShipmentHistory, getLeopardsPaymentDetails, getLeopardsShipmentByOrderIds, bookLeopardsShipment } from '../services/leopardsService';
 import { getSaleById, updateSaleTracking } from '../services/saleService';
+import prisma from '../config/prisma';
 
 export const getCities = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -176,6 +177,72 @@ export const extractExcel = async (req: Request, res: Response, next: NextFuncti
       }
     });
 
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const saveChequeRecord = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<any> => {
+  try {
+    const { fileName, htmlContent, isHtml } = req.body;
+
+    if (!fileName || !htmlContent) {
+      return res.status(400).json({ message: "filename and htmlContent are required" });
+    }
+
+    const record = await (prisma as any).chequeRecord.create({
+      data: {
+        fileName,
+        htmlContent,
+        isHtml: !!isHtml,
+      },
+    });
+
+    res.status(201).json(record);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getChequeRecords = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<any> => {
+  try {
+    const records = await (prisma as any).chequeRecord.findMany({
+      select: {
+        id: true,
+        fileName: true,
+        isHtml: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    res.status(200).json(records);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteChequeRecord = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<any> => {
+  try {
+    const { id } = req.params;
+    await (prisma as any).chequeRecord.delete({
+      where: { id },
+    });
+    res.status(200).json({ message: "Record deleted successfully" });
   } catch (error) {
     next(error);
   }
