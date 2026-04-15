@@ -188,10 +188,20 @@ export const saveChequeRecord = async (
   next: NextFunction
 ): Promise<any> => {
   try {
-    const { fileName, htmlContent, isHtml } = req.body;
+    const { fileName, htmlContent, isHtml, paymentDate, chequeNumber } = req.body;
 
     if (!fileName || !htmlContent) {
       return res.status(400).json({ message: "filename and htmlContent are required" });
+    }
+
+    if (paymentDate) {
+      const existingRecord = await (prisma as any).chequeRecord.findFirst({
+        where: { paymentDate }
+      });
+      
+      if (existingRecord) {
+        return res.status(409).json({ message: `A report with Payment Date ${paymentDate} already exists.` });
+      }
     }
 
     const record = await (prisma as any).chequeRecord.create({
@@ -199,6 +209,8 @@ export const saveChequeRecord = async (
         fileName,
         htmlContent,
         isHtml: !!isHtml,
+        paymentDate: paymentDate || null,
+        chequeNumber: chequeNumber || null,
       },
     });
 
@@ -219,6 +231,8 @@ export const getChequeRecords = async (
         id: true,
         fileName: true,
         isHtml: true,
+        paymentDate: true,
+        chequeNumber: true,
         createdAt: true,
       },
       orderBy: {

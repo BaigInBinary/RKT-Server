@@ -36,12 +36,30 @@ def extract_excel(file_path):
                 raw_df = pd.read_excel(file_path, header=None, engine=engine)
                 html_content = raw_df.to_html(classes=['table', 'table-bordered', 'w-full', 'text-xs'], border=1, header=False, index=False, na_rep='')
 
+        payment_date = None
+        cheque_number = None
+        if html_content:
+            import re
+            plain_text = re.sub(r'<[^>]+>', ' ', html_content).replace('&nbsp;', ' ')
+            
+            # Extract Payment Date
+            date_match = re.search(r'Payment\s*Date[:]?\s*(\d{2}/\d{2}/\d{4})', plain_text, re.IGNORECASE)
+            if date_match:
+                payment_date = date_match.group(1)
+                
+            # Extract Invoice No / Cheque Number
+            inv_match = re.search(r'Invoice\s*No\.?[:]?\s*([A-Z0-9\-]+)', plain_text, re.IGNORECASE)
+            if inv_match:
+                cheque_number = inv_match.group(1)
+
         if not html_content:
             return {"error": "The file appears to be empty or could not be read"}
 
         return {
             "htmlContent": html_content,
-            "rowCount": 0, # Not applicable anymore, but keep field for compatibility
+            "paymentDate": payment_date,
+            "chequeNumber": cheque_number,
+            "rowCount": 0,
             "isHtml": is_html
         }
     except Exception as e:

@@ -119,6 +119,8 @@ model ChequeRecord {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   fileName    String
   htmlContent String
+  paymentDate String?
+  chequeNumber String?
   isHtml      Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
