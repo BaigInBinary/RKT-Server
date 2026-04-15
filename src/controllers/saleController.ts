@@ -16,35 +16,7 @@ export const createSale = async (req: Request, res: Response, next: NextFunction
   try {
     const sale = await saleService.createSale(req.body);
     
-    // Automatically book shipment if shipping details are present
-    if (sale.customerName && sale.customerPhone && sale.shippingAddress && sale.city) {
-      try {
-        const weight = sale.items.reduce((sum, item) => sum + (item.quantity * 500), 0) || 500;
-        
-        const bookingResponse = await bookLeopardsShipment({
-          orderId: sale.id,
-          customerName: sale.customerName,
-          customerPhone: sale.customerPhone,
-          customerAddress: sale.shippingAddress,
-          city: sale.city,
-          amount: sale.total,
-          weight
-        });
-        
-        if (bookingResponse && bookingResponse.track_number) {
-          await saleService.updateSaleTracking(
-            sale.id, 
-            bookingResponse.track_number, 
-            "Booked",
-            bookingResponse.order_id // Assuming the response might have an internal ID, or just store track_number
-          );
-          sale.trackingNumber = bookingResponse.track_number;
-          sale.courierStatus = "Booked";
-        }
-      } catch (error) {
-        console.error("Failed to automatically book Leopards shipment:", error);
-      }
-    }
+
 
     res.status(201).json(sale);
   } catch (error) {
@@ -128,6 +100,50 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     }
     if (paymentStatus && !VALID_PAYMENT_STATUSES.includes(paymentStatus)) {
       return res.status(400).json({ message: `Invalid paymentStatus. Must be one of: ${VALID_PAYMENT_STATUSES.join(", ")}` });
+    }
+
+    if (courierStatus === "Booked") {
+      const existingOrder = await saleService.getSaleById(orderId);
+      if (!existingOrder) return res.status(404).json({ message: "Order not found" });
+
+      if (!existingOrder.trackingNumber) {
+        if (!existingOrder.customerName || !existingOrder.customerPhone || !existingOrder.shippingAddress || !existingOrder.city) {
+          return res.status(400).json({ message: "Order is missing customer details (Name, Phone, Address, City) required to book a Leopards shipment." });
+        }
+
+        try {
+          const weight = existingOrder.items.reduce((sum, item: any) => sum + (item.quantity * 500), 0) || 500;
+          
+          const bookingResponse = await bookLeopardsShipment({
+            orderId: existingOrder.id,
+            customerName: existingOrder.customerName,
+            customerPhone: existingOrder.customerPhone,
+            customerAddress: existingOrder.shippingAddress,
+            city: existingOrder.city,
+            amount: existingOrder.total,
+            weight
+          });
+          
+          if (!bookingResponse || !bookingResponse.track_number) {
+            return res.status(400).json({ message: "Leopards API failed to return a tracking number. Check configuration." });
+          }
+
+          // Directly assign it via updateSaleTracking without waiting for generic update below
+          await saleService.updateSaleTracking(
+            existingOrder.id, 
+            bookingResponse.track_number, 
+            "Booked",
+            bookingResponse.order_id 
+          );
+          
+          // Return immediately with updated order
+          const updated = await saleService.getSaleById(orderId);
+          return res.status(200).json(updated);
+        } catch (error: any) {
+          console.error("Manual booking failed:", error);
+          return res.status(400).json({ message: `Leopards Booking Failed: ${error.message || "Unknown error"}` });
+        }
+      }
     }
 
     const order = await saleService.updateOrderStatus(orderId, { courierStatus, paymentStatus });
