@@ -126,6 +126,31 @@ model ChequeRecord {
   updatedAt   DateTime @updatedAt
 }
 
+model ShipmentHistory {
+  id                   String   @id @default(auto()) @map("_id") @db.ObjectId
+  bookingDate          String?
+  deliveryDate         String?
+  shipperId            Int?
+  trackingNumber       String   @unique
+  bookedPacketWeight   String?
+  arivalDispatchWeight String?
+  bookedPacketOrderId  String?
+  originCity           String?
+  destinationCity      String?
+  consignmentNameEng   String?
+  consignmentPhone     String?
+  consignmentAddress   String?
+  bookedPacketStatus   String?
+  shipmentType         String?
+  codValue             String?
+  rawPayload           Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([bookingDate])
+  @@index([bookedPacketStatus])
+}
+
 
 model Category {
   id            String        @id @default(auto()) @map("_id") @db.ObjectId
