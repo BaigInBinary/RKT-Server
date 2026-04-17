@@ -86,6 +86,10 @@ model Item {
   averageRating     Float    @default(0)
   reviewCount       Int      @default(0)
   reviews           Json?
+  variants          Json?
+  tags              String[] @default([])
+  productType       String?
+  vendor            String?
   targetedByDiscounts Discount[] @relation("DiscountTargetItem")
   favorites         Favorite[]
   createdAt         DateTime @default(now())

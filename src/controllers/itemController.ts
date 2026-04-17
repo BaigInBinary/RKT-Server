@@ -107,6 +107,24 @@ const normalizeItemPayload = (body: Record<string, unknown>) => {
     payload.reviews = reviews;
   }
 
+  const variants = toJson(body.variants);
+  if (variants !== undefined) {
+    payload.variants = variants;
+  }
+
+  const tags = toStringArray(body.tags);
+  if (tags !== undefined) {
+    payload.tags = tags;
+  }
+
+  if (body.productType !== undefined) {
+    payload.productType = body.productType === null || body.productType === "" ? null : String(body.productType);
+  }
+
+  if (body.vendor !== undefined) {
+    payload.vendor = body.vendor === null || body.vendor === "" ? null : String(body.vendor);
+  }
+
   return payload;
 };
 
