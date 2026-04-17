@@ -18,7 +18,9 @@ const mapShipmentRecordToApi = (shipment: any) => ({
   consignment_address: shipment.consignmentAddress || "",
   booked_packet_status: shipment.bookedPacketStatus || "",
   shipment_type: shipment.shipmentType || "",
-  cod_value: shipment.codValue || ""
+  cod_value: shipment.codValue || "",
+  cheque_ref: shipment.chequeRef || null,
+  cheque_date: shipment.chequeDate || null,
 });
 
 export const getCities = async (req: Request, res: Response, next: NextFunction) => {
@@ -475,6 +477,75 @@ export const deleteChequeRecord = async (
       where: { id },
     });
     res.status(200).json({ message: "Record deleted successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const syncChequeToShipments = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<any> => {
+  try {
+    const shipmentHistoryModel = (prisma as any).shipmentHistory;
+    if (!shipmentHistoryModel) {
+      return res.status(500).json({ message: "ShipmentHistory model is not available." });
+    }
+
+    const { chequeId } = req.body;
+    if (!chequeId) {
+      return res.status(400).json({ message: "chequeId is required" });
+    }
+
+    // 1. Fetch the cheque record
+    const chequeRecord = await (prisma as any).chequeRecord.findUnique({
+      where: { id: chequeId },
+    });
+
+    if (!chequeRecord) {
+      return res.status(404).json({ message: "Cheque record not found" });
+    }
+
+    // 2. Extract CN numbers from HTML content using regex
+    // Leopards CN numbers are typically formatted as FS7527XXXXXXX or similar patterns
+    const cnPattern = /FS\d{10,13}/gi;
+    const matches = chequeRecord.htmlContent.match(cnPattern) || [];
+    const uniqueCns = [...new Set(matches.map((cn: string) => cn.toUpperCase()))] as string[];
+
+    if (uniqueCns.length === 0) {
+      return res.status(200).json({
+        message: "No CN numbers found in the cheque. Make sure the cheque contains valid tracking numbers (e.g. FS7527XXXXXXX).",
+        matched: 0,
+        cns: []
+      });
+    }
+
+    // 3. Bulk-update matching ShipmentHistory records
+    const result = await shipmentHistoryModel.updateMany({
+      where: {
+        trackingNumber: { in: uniqueCns }
+      },
+      data: {
+        chequeRef: chequeRecord.chequeNumber || chequeRecord.fileName,
+        chequeDate: chequeRecord.paymentDate || null,
+      }
+    });
+
+    // 4. Confirm which ones matched
+    const matched = await shipmentHistoryModel.findMany({
+      where: { trackingNumber: { in: uniqueCns } },
+      select: { trackingNumber: true, chequeRef: true, chequeDate: true }
+    });
+
+    res.status(200).json({
+      message: `Synced cheque ref to ${result.count} shipment(s).`,
+      totalCnsInCheque: uniqueCns.length,
+      matched: result.count,
+      matchedShipments: matched,
+      chequeRef: chequeRecord.chequeNumber || chequeRecord.fileName,
+      chequeDate: chequeRecord.paymentDate,
+    });
   } catch (error) {
     next(error);
   }

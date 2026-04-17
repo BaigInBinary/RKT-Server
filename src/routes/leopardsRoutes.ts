@@ -32,6 +32,7 @@ router.post('/calculate-shipping', leopardsController.calculateShipping);
 router.post('/book-shipment', leopardsController.bookShipment);
 router.post('/extract-excel', upload.single('file'), leopardsController.extractExcel);
 router.post('/cheques/save', leopardsController.saveChequeRecord);
+router.post('/cheques/sync-to-shipments', leopardsController.syncChequeToShipments);
 router.get('/cheques', leopardsController.getChequeRecords);
 router.get('/cheques/:id', leopardsController.getChequeRecordById);
 router.delete('/cheques/:id', leopardsController.deleteChequeRecord);

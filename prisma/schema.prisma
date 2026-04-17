@@ -148,6 +148,8 @@ model ShipmentHistory {
   shipmentType         String?
   codValue             String?
   rawPayload           Json?
+  chequeRef            String?  // Cheque/invoice number from synced cheque report
+  chequeDate           String?  // Payment date from synced cheque report
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
