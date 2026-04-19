@@ -582,6 +582,142 @@ export const getNewArrivals = async () => {
   });
 };
 
+export const getRelatedCatalogItems = async (
+  itemId: string,
+  limitInput?: number,
+) => {
+  const sourceItem = await prisma.item.findUnique({
+    where: { id: itemId },
+    select: {
+      id: true,
+      category: true,
+      subCategoryId: true,
+    },
+  });
+
+  if (!sourceItem) {
+    return null;
+  }
+
+  const limit = Number.isFinite(limitInput)
+    ? Math.min(20, Math.max(1, Math.floor(limitInput as number)))
+    : 8;
+
+  const activeDiscounts = await prisma.discount.findMany({
+    where: { isActive: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const now = new Date();
+  const discounts = activeDiscounts.filter((discount) =>
+    isDiscountActive(discount, now),
+  );
+
+  const mapCatalogCard = (item: {
+    id: string;
+    name: string;
+    sku: string;
+    category: string;
+    subCategoryId: string | null;
+    imageUrl: string | null;
+    galleryImages: string[];
+    shortDescription: string | null;
+    productType: string | null;
+    vendor: string | null;
+    tags: string[];
+    variants: Prisma.JsonValue;
+    weightInGrams: number | null;
+    quantity: number;
+    price: number;
+    createdAt: Date;
+    updatedAt: Date;
+  }) => {
+    const pricing = applyListingDiscounts(
+      item.price,
+      {
+        id: item.id,
+        category: item.category,
+        subCategoryId: item.subCategoryId,
+      },
+      discounts,
+    );
+
+    return {
+      id: item.id,
+      name: item.name,
+      sku: item.sku,
+      category: item.category,
+      subCategoryId: item.subCategoryId,
+      imageUrl: item.imageUrl,
+      galleryImages: item.galleryImages || [],
+      shortDescription: item.shortDescription,
+      productType: item.productType || null,
+      vendor: item.vendor || null,
+      tags: item.tags || [],
+      variants: item.variants || null,
+      weightInGrams: item.weightInGrams ?? null,
+      quantity: item.quantity,
+      inStock: item.quantity > 0,
+      pricing,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+  };
+
+  const commonSelect = {
+    id: true,
+    name: true,
+    sku: true,
+    category: true,
+    subCategoryId: true,
+    imageUrl: true,
+    galleryImages: true,
+    shortDescription: true,
+    productType: true,
+    vendor: true,
+    tags: true,
+    variants: true,
+    weightInGrams: true,
+    quantity: true,
+    price: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
+
+  const subCategoryMatches = sourceItem.subCategoryId
+    ? await prisma.item.findMany({
+        where: {
+          id: { not: sourceItem.id },
+          subCategoryId: sourceItem.subCategoryId,
+        },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: commonSelect,
+      })
+    : [];
+
+  let relatedItems = subCategoryMatches;
+
+  if (relatedItems.length < limit) {
+    const fallbackItems = await prisma.item.findMany({
+      where: {
+        id: {
+          notIn: [sourceItem.id, ...relatedItems.map((entry) => entry.id)],
+        },
+        category: sourceItem.category,
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit - relatedItems.length,
+      select: commonSelect,
+    });
+
+    relatedItems = [...relatedItems, ...fallbackItems];
+  }
+
+  return {
+    data: relatedItems.map(mapCatalogCard),
+  };
+};
+
 export const getItemById = async (id: string): Promise<Item | null> => {
   return await prisma.item.findUnique({
     where: { id },

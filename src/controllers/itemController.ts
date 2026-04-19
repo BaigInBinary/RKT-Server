@@ -271,6 +271,26 @@ export const getCatalogItem = async (
   }
 };
 
+export const getRelatedCatalogItems = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const limit = toNumber(getQueryString(req.query.limit));
+    const result = await itemService.getRelatedCatalogItems(
+      req.params.id as string,
+      limit,
+    );
+    if (!result) {
+      return res.status(404).json({ message: "Item not found" });
+    }
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getNewArrivals = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const items = await itemService.getNewArrivals();
