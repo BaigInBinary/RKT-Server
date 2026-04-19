@@ -40,9 +40,19 @@ export const errorHandler = (
   }
 
   if (err instanceof Prisma.PrismaClientValidationError) {
+    const compactMessage = err.message
+      .replace(/\s+/g, " ")
+      .trim();
+    const enumMatch = compactMessage.match(/Invalid enum value.*Expected ([^,]+), provided ([^.]+)/i);
+    const userFriendlyMessage = enumMatch
+      ? `Invalid value provided. Expected one of: ${enumMatch[1]}. Received: ${enumMatch[2]}.`
+      : compactMessage.includes("Argument")
+        ? compactMessage
+        : "Invalid data provided";
+
     return res.status(400).json({
       success: false,
-      message: "Invalid data provided",
+      message: userFriendlyMessage,
     });
   }
 

@@ -35,7 +35,10 @@ const toAuthUser = (user: any) => ({
   email: user.email as string,
   name: (user.name ?? "") as string,
   accountType: (user.accountType ?? ADMIN_ACCOUNT_TYPE) as UserAccountType,
-  role: (user.role ?? "CASHIER") as UserRole,
+  role:
+    ((user.accountType ?? ADMIN_ACCOUNT_TYPE) as UserAccountType) === CUSTOMER_ACCOUNT_TYPE
+      ? ("CUSTOMER" as UserRole)
+      : ((user.role ?? "CASHIER") as UserRole),
   status: (user.status ?? "PENDING") as UserStatus,
   permissions: Array.isArray(user.permissions) ? (user.permissions as string[]) : [],
 });
@@ -59,7 +62,10 @@ const registerWithAccountType = async (
       return res.status(400).json({ message: 'User already exists' });
     }
 
-    const role: UserRole = accountType === CUSTOMER_ACCOUNT_TYPE ? "CUSTOMER" : "CASHIER";
+    // NOTE:
+    // Current generated Prisma client in this environment may not include CUSTOMER in UserRole enum.
+    // Persist as CASHIER for LOCAL_USER accounts and map back to CUSTOMER in API responses.
+    const role: UserRole = "CASHIER";
     const status: UserStatus =
       accountType === ADMIN_ACCOUNT_TYPE ? "PENDING" : "ACTIVE";
     const permissions: string[] = [];

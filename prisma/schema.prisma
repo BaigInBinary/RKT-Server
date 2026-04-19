@@ -32,6 +32,7 @@ enum UserRole {
   ADMIN
   MANAGER
   CASHIER
+  CUSTOMER
 }
 
 enum UserStatus {
