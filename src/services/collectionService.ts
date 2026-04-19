@@ -39,6 +39,11 @@ const loadResolvedItemIds = async (collectionId: string) => {
   const collection = await prisma.collection.findUnique({
     where: { id: collectionId },
     include: {
+      categories: {
+        include: {
+          category: true,
+        },
+      },
       subCategorySelections: {
         include: {
           selectedItems: true,
@@ -54,6 +59,20 @@ const loadResolvedItemIds = async (collectionId: string) => {
 
   const ids = new Set<string>();
   collection.directItems.forEach((entry) => ids.add(entry.itemId));
+
+  // Include all products from categories selected as "whole category" in admin.
+  const selectedCategoryNames = collection.categories
+    .map((entry) => entry.category?.name?.trim())
+    .filter((name): name is string => !!name);
+  if (selectedCategoryNames.length > 0) {
+    const categoryItems = await prisma.item.findMany({
+      where: {
+        category: { in: selectedCategoryNames },
+      },
+      select: { id: true },
+    });
+    categoryItems.forEach((item) => ids.add(item.id));
+  }
 
   const allSubCategoryIds = collection.subCategorySelections
     .filter((entry) => entry.mode === CollectionSubCategoryMode.ALL_ITEMS)
