@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { CollectionSubCategoryMode } from "@prisma/client";
 import * as collectionService from "../services/collectionService";
+import { uploadImageBuffer } from "../config/cloudinary";
 
 const getParam = (value: string | string[]) =>
   Array.isArray(value) ? value[0] : value;
@@ -183,6 +184,26 @@ export const deleteCollection = async (
     const id = getParam(req.params.id);
     await collectionService.deleteCollection(id);
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const uploadCollectionImage = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Image file is required" });
+    }
+
+    const uploadedImage = await uploadImageBuffer(req.file.buffer, "collections");
+    res.status(200).json({
+      imageUrl: uploadedImage.secure_url,
+      publicId: uploadedImage.public_id,
+    });
   } catch (error) {
     next(error);
   }

@@ -1,6 +1,7 @@
 import express, { type Router } from "express";
 import * as collectionController from "../controllers/collectionController";
 import { authenticate, authorizeAccountTypes, authorizeRoles } from "../middlewares/authMiddleware";
+import { imageUpload } from "../middlewares/uploadMiddleware";
 
 const router: Router = express.Router();
 
@@ -14,6 +15,12 @@ router.get(
   "/admin/all",
   authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
   collectionController.listAdminCollections,
+);
+router.post(
+  "/upload-image",
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
+  imageUpload.single("image"),
+  collectionController.uploadCollectionImage,
 );
 router.post(
   "/",
