@@ -352,6 +352,7 @@ export const getCollectionItemsPublic = async (
     where.OR = [
       { name: { contains: term, mode: "insensitive" } },
       { sku: { contains: term, mode: "insensitive" } },
+      { category: { contains: term, mode: "insensitive" } },
     ];
   }
 
