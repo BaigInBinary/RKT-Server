@@ -143,10 +143,55 @@ const applyListingDiscounts = (
   };
 };
 
-export const getAllItems = async (): Promise<Item[]> => {
-  return await prisma.item.findMany({
-    orderBy: { createdAt: "desc" },
-  });
+export interface AdminItemsQueryInput {
+  search?: string;
+  category?: string;
+  page?: number;
+  limit?: number;
+}
+
+export const getAllItems = async (query?: AdminItemsQueryInput): Promise<{ data: Item[]; meta: { page: number; limit: number; totalItems: number; totalPages: number } }> => {
+  const page = query?.page && Number.isFinite(query.page) ? Math.max(1, query.page) : 1;
+  const limit = query?.limit && Number.isFinite(query.limit) ? Math.min(200, Math.max(1, query.limit)) : 50;
+
+  const where: Prisma.ItemWhereInput = {};
+  const and: Prisma.ItemWhereInput[] = [];
+
+  if (query?.search && query.search.trim()) {
+    const term = query.search.trim();
+    and.push({
+      OR: [
+        { name: { contains: term, mode: "insensitive" } },
+        { sku: { contains: term, mode: "insensitive" } },
+        { category: { contains: term, mode: "insensitive" } },
+      ],
+    });
+  }
+
+  if (query?.category && query.category !== "all") {
+    and.push({ category: query.category });
+  }
+
+  if (and.length > 0) {
+    where.AND = and;
+  }
+
+  const [data, totalItems] = await Promise.all([
+    prisma.item.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    prisma.item.count({ where }),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
+
+  return {
+    data,
+    meta: { page, limit, totalItems, totalPages },
+  };
 };
 
 export const getCatalogItems = async (query: CatalogQueryInput) => {

@@ -158,8 +158,13 @@ const getStringList = (value: unknown): string[] | undefined => {
 
 export const getItems = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const items = await itemService.getAllItems();
-    res.status(200).json(items);
+    const result = await itemService.getAllItems({
+      search: getQueryString(req.query.search),
+      category: getQueryString(req.query.category),
+      page: toNumber(getQueryString(req.query.page)),
+      limit: toNumber(getQueryString(req.query.limit)),
+    });
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }
