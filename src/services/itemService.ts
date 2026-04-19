@@ -197,7 +197,7 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
   const sortBy = query.sortBy || "createdAt";
   const sortOrder = query.sortOrder || "desc";
 
-  const [items, totalItems, activeDiscounts] = await prisma.$transaction([
+  const [items, totalItems, activeDiscounts] = await Promise.all([
     prisma.item.findMany({
       where,
       include: {
@@ -272,7 +272,7 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
 };
 
 export const getCatalogItemById = async (id: string) => {
-  const [item, activeDiscounts] = await prisma.$transaction([
+  const [item, activeDiscounts] = await Promise.all([
     prisma.item.findUnique({
       where: { id },
       include: {
@@ -337,7 +337,7 @@ export const getCatalogItemById = async (id: string) => {
 };
 
 export const getMultipleCatalogItemsByIds = async (ids: string[]) => {
-  const [items, activeDiscounts] = await prisma.$transaction([
+  const [items, activeDiscounts] = await Promise.all([
     prisma.item.findMany({
       where: { id: { in: ids } },
       include: {
@@ -498,7 +498,7 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
 };
 
 export const getNewArrivals = async () => {
-  const [items, activeDiscounts] = await prisma.$transaction([
+  const [items, activeDiscounts] = await Promise.all([
     prisma.item.findMany({
       orderBy: { createdAt: "desc" },
       take: 8,

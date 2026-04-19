@@ -328,7 +328,7 @@ export const getCollectionItemsPublic = async (
     ];
   }
 
-  const [items, totalItems] = await prisma.$transaction([
+  const [items, totalItems] = await Promise.all([
     prisma.item.findMany({
       where,
       orderBy: { createdAt: "desc" },
