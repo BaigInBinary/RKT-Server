@@ -35,6 +35,18 @@ const slugify = (value: string) =>
 const uniqueStrings = (values?: string[]) =>
   Array.from(new Set((values || []).map((v) => v.trim()).filter(Boolean)));
 
+const isMongoObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value);
+
+const buildPublicCollectionIdentifierFilter = (idOrSlug: string): Prisma.CollectionWhereInput => {
+  if (isMongoObjectId(idOrSlug)) {
+    return {
+      OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+    };
+  }
+
+  return { slug: idOrSlug };
+};
+
 const loadResolvedItemIds = async (collectionId: string) => {
   const collection = await prisma.collection.findUnique({
     where: { id: collectionId },
@@ -280,9 +292,7 @@ export const getCollectionByIdPublic = async (idOrSlug: string) => {
     where: {
       AND: [
         { isActive: true },
-        {
-          OR: [{ id: idOrSlug }, { slug: idOrSlug }],
-        },
+        buildPublicCollectionIdentifierFilter(idOrSlug),
       ],
     },
     include: {
@@ -308,9 +318,7 @@ export const getCollectionItemsPublic = async (
     where: {
       AND: [
         { isActive: true },
-        {
-          OR: [{ id: idOrSlug }, { slug: idOrSlug }],
-        },
+        buildPublicCollectionIdentifierFilter(idOrSlug),
       ],
     },
     select: { id: true },
