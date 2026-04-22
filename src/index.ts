@@ -9,8 +9,23 @@ import { ensureDefaultSiteContent } from "./bootstrap/siteContent";
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
-  await ensureSuperAdminUser();
-  await ensureDefaultSiteContent();
+  const bootstrapJobs = [
+    { label: "super admin user", run: ensureSuperAdminUser() },
+    { label: "default site content", run: ensureDefaultSiteContent() },
+  ];
+
+  const bootstrapResults = await Promise.allSettled(
+    bootstrapJobs.map(({ run }) => run),
+  );
+
+  bootstrapResults.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.warn(
+        `Bootstrap skipped for ${bootstrapJobs[index]?.label ?? "unknown step"}:`,
+        result.reason,
+      );
+    }
+  });
 
   // For local development
   if (process.env.NODE_ENV !== "production") {
