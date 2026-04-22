@@ -1,4 +1,4 @@
-import express, { type Express } from 'express';
+import express, { type Application } from 'express';
 import cors from 'cors';
 import { errorHandler } from './middlewares/errorMiddleware';
 
@@ -17,7 +17,7 @@ import deliveryRoutes from "./routes/deliveryRoutes";
 import leopardsRoutes from "./routes/leopardsRoutes";
 import leopardsConfigRoutes from "./routes/leopardsConfigRoutes";
 
-const app: Express = express();
+const app: Application = express();
 
 // Middlewares
 app.use(cors());
