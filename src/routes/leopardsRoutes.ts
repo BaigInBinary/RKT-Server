@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import * as leopardsController from '../controllers/leopardsController';
 import multer from 'multer';
+import os from 'os';
 import path from 'path';
 import fs from 'fs';
 
 const router: Router = Router();
 
 // Configure multer for temporary file storage
-const uploadsDir = path.join(__dirname, '../../uploads');
+const uploadsDir = path.join(os.tmpdir(), 'rkt-store-uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
