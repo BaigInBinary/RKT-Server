@@ -2,10 +2,7 @@
   "version": 2,
   "functions": {
     "api/index.js": {
-      "includeFiles": [
-        "src/scripts/extract_excel.py",
-        ".python_packages/**"
-      ]
+      "includeFiles": "{src/scripts/extract_excel.py,.python_packages/**}"
     }
   },
   "builds": [
