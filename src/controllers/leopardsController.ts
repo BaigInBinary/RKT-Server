@@ -293,7 +293,7 @@ export const extractExcel = async (req: Request, res: Response, next: NextFuncti
 
     const pythonCandidates = process.platform === 'win32'
       ? ['python', 'py', 'python3']
-      : ['python3', 'python'];
+      : ['python3', 'python', '/var/lang/bin/python3', '/usr/bin/python3'];
     const pythonCommand = pythonCandidates.find((cmd: string) => {
       try {
         const result = spawnSync(cmd, ['--version'], { stdio: 'pipe' });
@@ -313,7 +313,17 @@ export const extractExcel = async (req: Request, res: Response, next: NextFuncti
       });
     }
 
-    const pythonProcess = spawn(pythonCommand, [scriptPath, filePath]);
+    const pythonDependencyPath = path.join(process.cwd(), '.python_packages');
+    const mergedPythonPath = [pythonDependencyPath, process.env.PYTHONPATH]
+      .filter(Boolean)
+      .join(path.delimiter);
+
+    const pythonProcess = spawn(pythonCommand, [scriptPath, filePath], {
+      env: {
+        ...process.env,
+        PYTHONPATH: mergedPythonPath
+      }
+    });
 
     let dataString = '';
     let errorString = '';

@@ -12,7 +12,7 @@
     "test": "jest --runInBand",
     "test:watch": "jest --watch --runInBand",
     "test:coverage": "jest --coverage --runInBand",
-    "vercel-build": "rm -rf dist && prisma generate && tsc -p tsconfig.json --noCheck"
+    "vercel-build": "rm -rf dist .python_packages && prisma generate && tsc -p tsconfig.json --noCheck && (python3 -m pip install -r requirements.txt -t ./.python_packages || python -m pip install -r requirements.txt -t ./.python_packages)"
   },
   "keywords": [],
   "author": "",
