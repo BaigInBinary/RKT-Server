@@ -2,8 +2,8 @@ import express, { type Application } from 'express';
 import cors from 'cors';
 import { errorHandler } from './middlewares/errorMiddleware';
 
-import authRoutes from './routes/authRoutes';
 import itemRoutes from './routes/itemRoutes';
+import authRoutes from './routes/authRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import subCategoryRoutes from './routes/subCategoryRoutes';
 import saleRoutes from './routes/saleRoutes';
