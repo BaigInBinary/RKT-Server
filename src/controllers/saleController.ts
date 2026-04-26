@@ -87,12 +87,17 @@ export const getOrders = async (req: Request, res: Response, next: NextFunction)
 export const updateOrderStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { courierStatus, paymentStatus } = req.body as {
+    const { courierStatus: rawCourierStatus, paymentStatus: rawPaymentStatus } = req.body as {
       courierStatus?: string;
       paymentStatus?: string;
     };
 
-    const VALID_COURIER_STATUSES = ["Pending", "Booked", "In Transit", "Out for Delivery", "Delivered", "Returned", "Cancelled"];
+    const courierStatus = rawCourierStatus === "Canceled" ? "Cancelled" : rawCourierStatus;
+    const paymentStatus = typeof rawPaymentStatus === "string"
+      ? rawPaymentStatus.toLowerCase()
+      : rawPaymentStatus;
+
+    const VALID_COURIER_STATUSES = ["Pending", "Booked", "In Transit", "Out for Delivery", "Delivered", "Returned", "Cancelled", "Canceled"];
     const VALID_PAYMENT_STATUSES = ["pending", "paid", "failed", "refunded"];
 
     if (courierStatus && !VALID_COURIER_STATUSES.includes(courierStatus)) {

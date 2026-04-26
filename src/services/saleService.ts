@@ -55,6 +55,7 @@ export interface SalesAnalytics {
 
 type ItemQuantityDelta = Map<string, number>;
 const MAX_TXN_REF_RETRIES = 5;
+const RESTOCK_COURIER_STATUSES = new Set(["returned", "cancelled", "canceled"]);
 
 const toHourBucketStart = (value: Date): Date => {
   const date = new Date(value);
@@ -88,6 +89,27 @@ const generateTxnRefNo = (): string => {
   const timePart = Date.now().toString(36).toUpperCase();
   const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
   return `SALE-${timePart}-${randomPart}`;
+};
+
+const normalizeCourierStatus = (value?: string): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (trimmed.toLowerCase() === "canceled") {
+    return "Cancelled";
+  }
+  return trimmed;
+};
+
+const isRestockCourierStatus = (value?: string | null): boolean => {
+  if (typeof value !== "string") {
+    return false;
+  }
+  return RESTOCK_COURIER_STATUSES.has(value.trim().toLowerCase());
 };
 
 const isTxnRefUniqueConstraintError = (error: unknown): boolean => {
@@ -332,32 +354,36 @@ export const deleteSale = async (id: string): Promise<void> => {
       throw Object.assign(new Error("Sale not found"), { statusCode: 404 });
     }
 
-    const previousItems = existingSale.items as unknown as SaleItemInput[];
-    const itemIds = Array.from(new Set(previousItems.map((item) => item.itemId)));
-    const existingItems = await tx.item.findMany({
-      where: { id: { in: itemIds } },
-      select: { id: true },
-    });
-    const existingItemIds = new Set(existingItems.map((item) => item.id));
-
-    const soldDelta = new Map<string, number>();
-    for (const item of previousItems) {
-      if (!existingItemIds.has(item.itemId)) {
-        continue;
-      }
-      soldDelta.set(item.itemId, (soldDelta.get(item.itemId) || 0) - item.quantity);
-      await tx.item.update({
-        where: { id: item.itemId },
-        data: {
-          quantity: {
-            increment: item.quantity,
-          },
-        },
+    // If order was already returned/cancelled, stock was previously restored.
+    // Skip restore here to avoid double increment on delete.
+    if (!isRestockCourierStatus(existingSale.courierStatus)) {
+      const previousItems = existingSale.items as unknown as SaleItemInput[];
+      const itemIds = Array.from(new Set(previousItems.map((item) => item.itemId)));
+      const existingItems = await tx.item.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true },
       });
-    }
+      const existingItemIds = new Set(existingItems.map((item) => item.id));
 
-    if (soldDelta.size > 0) {
-      await applyHourlyAndSoldCountDeltas(tx, existingSale.date, soldDelta);
+      const soldDelta = new Map<string, number>();
+      for (const item of previousItems) {
+        if (!existingItemIds.has(item.itemId)) {
+          continue;
+        }
+        soldDelta.set(item.itemId, (soldDelta.get(item.itemId) || 0) - item.quantity);
+        await tx.item.update({
+          where: { id: item.itemId },
+          data: {
+            quantity: {
+              increment: item.quantity,
+            },
+          },
+        });
+      }
+
+      if (soldDelta.size > 0) {
+        await applyHourlyAndSoldCountDeltas(tx, existingSale.date, soldDelta);
+      }
     }
 
     await tx.sale.delete({ where: { id } });
@@ -395,17 +421,64 @@ export interface UpdateOrderStatusInput {
   paymentStatus?: string;
 }
 
-// Update courier / payment status without touching stock or analytics.
+// Update courier / payment status. When moved to Returned/Cancelled/Canceled,
+// this also restores item stock and sold/hourly counters once.
 export const updateOrderStatus = async (
   id: string,
   data: UpdateOrderStatusInput,
 ): Promise<Sale> => {
-  return await prisma.sale.update({
-    where: { id },
-    data: {
-      ...(data.courierStatus !== undefined && { courierStatus: data.courierStatus }),
-      ...(data.paymentStatus !== undefined && { paymentStatus: data.paymentStatus }),
-    },
+  return await prisma.$transaction(async (tx) => {
+    const existingOrder = await tx.sale.findUnique({ where: { id } });
+    if (!existingOrder) {
+      throw Object.assign(new Error("Order not found"), { statusCode: 404 });
+    }
+
+    const nextCourierStatus = data.courierStatus !== undefined
+      ? normalizeCourierStatus(data.courierStatus) ?? existingOrder.courierStatus ?? undefined
+      : existingOrder.courierStatus ?? undefined;
+
+    const becameRestocked =
+      !isRestockCourierStatus(existingOrder.courierStatus) &&
+      isRestockCourierStatus(nextCourierStatus);
+
+    // Restore stock once when order moves into Returned/Cancelled/Canceled.
+    if (becameRestocked) {
+      const previousItems = existingOrder.items as unknown as SaleItemInput[];
+      const itemIds = Array.from(new Set(previousItems.map((item) => item.itemId)));
+      const existingItems = await tx.item.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true },
+      });
+      const existingItemIds = new Set(existingItems.map((item) => item.id));
+
+      const soldDelta = new Map<string, number>();
+      for (const item of previousItems) {
+        if (!existingItemIds.has(item.itemId)) {
+          continue;
+        }
+        soldDelta.set(item.itemId, (soldDelta.get(item.itemId) || 0) - item.quantity);
+        await tx.item.update({
+          where: { id: item.itemId },
+          data: {
+            quantity: {
+              increment: item.quantity,
+            },
+          },
+        });
+      }
+
+      if (soldDelta.size > 0) {
+        await applyHourlyAndSoldCountDeltas(tx, existingOrder.date, soldDelta);
+      }
+    }
+
+    return await tx.sale.update({
+      where: { id },
+      data: {
+        ...(data.courierStatus !== undefined && { courierStatus: nextCourierStatus }),
+        ...(data.paymentStatus !== undefined && { paymentStatus: data.paymentStatus }),
+      },
+    });
   });
 };
 
