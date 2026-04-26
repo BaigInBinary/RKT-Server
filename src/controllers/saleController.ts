@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as saleService from '../services/saleService';
+import { sendOrderBookedEmail } from "../services/orderNotificationService";
 
 export const getSales = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -127,9 +128,13 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
       return res.status(400).json({ message: `Invalid paymentStatus. Must be one of: ${VALID_PAYMENT_STATUSES.join(", ")}` });
     }
 
+    const shouldAttemptBookedNotification = courierStatus === "Booked";
+    let existingOrderBeforeBookedUpdate: Awaited<ReturnType<typeof saleService.getSaleById>> | null = null;
+
     if (courierStatus === "Booked") {
       const existingOrder = await saleService.getSaleById(orderId);
       if (!existingOrder) return res.status(404).json({ message: "Order not found" });
+      existingOrderBeforeBookedUpdate = existingOrder;
 
       if (!existingOrder.trackingNumber) {
         if (!existingOrder.customerName || !existingOrder.customerPhone || !existingOrder.shippingAddress || !existingOrder.city) {
@@ -163,6 +168,19 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
           
           // Return immediately with updated order
           const updated = await saleService.getSaleById(orderId);
+          if (updated) {
+            try {
+              await sendOrderBookedEmail({
+                order: updated,
+                trackingNumber: bookingResponse.track_number,
+              });
+            } catch (mailError: any) {
+              console.error(
+                `Booked notification email failed for order ${updated.id}:`,
+                mailError?.message || mailError,
+              );
+            }
+          }
           return res.status(200).json(updated);
         } catch (error: any) {
           console.error("Manual booking failed:", error);
@@ -172,6 +190,24 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     }
 
     const order = await saleService.updateOrderStatus(orderId, { courierStatus, paymentStatus });
+    if (
+      shouldAttemptBookedNotification &&
+      order &&
+      order.trackingNumber &&
+      (existingOrderBeforeBookedUpdate?.courierStatus ?? "").trim().toLowerCase() !== "booked"
+    ) {
+      try {
+        await sendOrderBookedEmail({
+          order,
+          trackingNumber: order.trackingNumber,
+        });
+      } catch (mailError: any) {
+        console.error(
+          `Booked notification email failed for order ${order.id}:`,
+          mailError?.message || mailError,
+        );
+      }
+    }
     res.status(200).json(order);
   } catch (error) {
     next(error);

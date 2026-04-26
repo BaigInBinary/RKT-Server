@@ -545,6 +545,12 @@ export const getSaleByTxnRefNo = async (txnRefNo: string): Promise<Sale | null> 
   });
 };
 
+export const getSaleByTrackingNumber = async (trackingNumber: string): Promise<Sale | null> => {
+  return await prisma.sale.findUnique({
+    where: { trackingNumber },
+  });
+};
+
 export const updatePaymentStatus = async (txnRefNo: string, status: string): Promise<Sale> => {
   return await prisma.sale.update({
     where: { txnRefNo },

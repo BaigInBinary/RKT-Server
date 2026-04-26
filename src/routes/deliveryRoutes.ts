@@ -9,11 +9,15 @@ router.get("/track/:orderId", async (req: Request, res: Response) => {
     try {
         const orderId = req.params.orderId as string;
         
-        // 1. Fetch order from DB (try by ID then by txnRefNo)
+        // 1. Fetch order from DB (try by ID, then by txnRefNo, then by CN/tracking number)
         let order = await saleService.getSaleById(orderId);
         
         if (!order) {
             order = await saleService.getSaleByTxnRefNo(orderId);
+        }
+
+        if (!order) {
+            order = await saleService.getSaleByTrackingNumber(orderId);
         }
 
         if (!order) {

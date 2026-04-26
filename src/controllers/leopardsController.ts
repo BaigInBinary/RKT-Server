@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { getAllLeopardsCities, getLeopardsTariff, getLeopardsShipmentHistory, getLeopardsPaymentDetails, getLeopardsShipmentByOrderIds, bookLeopardsShipment } from '../services/leopardsService';
 import { getSaleById, updateSaleTracking } from '../services/saleService';
+import { sendOrderBookedEmail } from "../services/orderNotificationService";
 import prisma from '../config/prisma';
 
 const parseChequePaymentDate = (value?: string | null): Date | null => {
@@ -323,6 +324,18 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
         "Booked",
         result.track_number // Use CN as booking ID locally as well
       );
+
+      try {
+        await sendOrderBookedEmail({
+          order: updatedOrder,
+          trackingNumber: result.track_number,
+        });
+      } catch (mailError: any) {
+        console.error(
+          `Booked notification email failed for order ${updatedOrder.id}:`,
+          mailError?.message || mailError,
+        );
+      }
       
       return res.status(200).json({
         status: 1,
