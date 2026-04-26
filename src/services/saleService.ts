@@ -71,7 +71,54 @@ export interface OrderAnalytics {
 
 type ItemQuantityDelta = Map<string, number>;
 const MAX_TXN_REF_RETRIES = 5;
+const MAX_TRANSACTION_RETRIES = 3;
 const RESTOCK_COURIER_STATUSES = new Set(["returned", "cancelled", "canceled"]);
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isTransientTransactionError = (error: unknown): boolean => {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return error.code === "P2034";
+  }
+
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = `${error.name}: ${error.message} ${(error as { meta?: unknown }).meta ? JSON.stringify((error as { meta?: unknown }).meta) : ""}`.toLowerCase();
+  return (
+    message.includes("transienttransactionerror") ||
+    message.includes("os error 10054") ||
+    message.includes("forcibly closed by the remote host") ||
+    message.includes("connection was closed") ||
+    message.includes("connection closed") ||
+    message.includes("socket hang up")
+  );
+};
+
+const runTransactionWithRetry = async <T>(
+  operation: (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>,
+  label: string,
+): Promise<T> => {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= MAX_TRANSACTION_RETRIES; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (tx) => operation(tx));
+    } catch (error) {
+      lastError = error;
+      if (!isTransientTransactionError(error) || attempt === MAX_TRANSACTION_RETRIES) {
+        throw error;
+      }
+
+      const waitMs = attempt * 250;
+      console.warn(`${label} transaction retry ${attempt}/${MAX_TRANSACTION_RETRIES} after transient error`);
+      await delay(waitMs);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`${label} transaction failed`);
+};
 
 const toHourBucketStart = (value: Date): Date => {
   const date = new Date(value);
@@ -282,7 +329,7 @@ export const getSaleById = async (id: string): Promise<Sale | null> => {
 
 export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
   // Use a transaction to ensure both sale creation and stock update succeed
-  return await prisma.$transaction(async (tx) => {
+  return await runTransactionWithRetry(async (tx) => {
     const saleDate = data.date || new Date();
     const quantityMap = buildQuantityMap(data.items);
     let txnRefNo = normalizeTxnRefNo(data.txnRefNo) ?? generateTxnRefNo();
@@ -343,14 +390,14 @@ export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
     await applyHourlyAndSoldCountDeltas(tx, saleDate, quantityMap);
 
     return sale;
-  });
+  }, "createSale");
 };
 
 export const updateSale = async (
   id: string,
   data: UpdateSaleInput,
 ): Promise<Sale> => {
-  return await prisma.$transaction(async (tx) => {
+  return await runTransactionWithRetry(async (tx) => {
     const existingSale = await tx.sale.findUnique({ where: { id } });
     if (!existingSale) {
       throw new Error("Sale not found");
@@ -446,11 +493,11 @@ export const updateSale = async (
         date: nextSaleDate,
       },
     });
-  });
+  }, "updateSale");
 };
 
 export const deleteSale = async (id: string): Promise<void> => {
-  await prisma.$transaction(async (tx) => {
+  await runTransactionWithRetry(async (tx) => {
     const existingSale = await tx.sale.findUnique({ where: { id } });
     if (!existingSale) {
       throw Object.assign(new Error("Sale not found"), { statusCode: 404 });
@@ -489,7 +536,7 @@ export const deleteSale = async (id: string): Promise<void> => {
     }
 
     await tx.sale.delete({ where: { id } });
-  });
+  }, "deleteSale");
 };
 
 export const getSaleByTxnRefNo = async (txnRefNo: string): Promise<Sale | null> => {
@@ -529,7 +576,7 @@ export const updateOrderStatus = async (
   id: string,
   data: UpdateOrderStatusInput,
 ): Promise<Sale> => {
-  return await prisma.$transaction(async (tx) => {
+  return await runTransactionWithRetry(async (tx) => {
     const existingOrder = await tx.sale.findUnique({ where: { id } });
     if (!existingOrder) {
       throw Object.assign(new Error("Order not found"), { statusCode: 404 });
@@ -581,7 +628,7 @@ export const updateOrderStatus = async (
         ...(data.paymentStatus !== undefined && { paymentStatus: data.paymentStatus }),
       },
     });
-  });
+  }, "updateOrderStatus");
 };
 
 export const getOrderAnalytics = async (
