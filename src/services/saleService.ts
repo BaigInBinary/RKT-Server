@@ -1,5 +1,5 @@
 import prisma from "../config/prisma";
-import { Sale } from "@prisma/client";
+import { Prisma, Sale } from "@prisma/client";
 
 export interface SaleItemInput {
   itemId: string;
@@ -54,6 +54,7 @@ export interface SalesAnalytics {
 }
 
 type ItemQuantityDelta = Map<string, number>;
+const MAX_TXN_REF_RETRIES = 5;
 
 const toHourBucketStart = (value: Date): Date => {
   const date = new Date(value);
@@ -73,6 +74,34 @@ const mergeDeltaMaps = (base: ItemQuantityDelta, delta: ItemQuantityDelta) => {
   for (const [itemId, quantity] of delta.entries()) {
     base.set(itemId, (base.get(itemId) || 0) + quantity);
   }
+};
+
+const normalizeTxnRefNo = (value?: string): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const generateTxnRefNo = (): string => {
+  const timePart = Date.now().toString(36).toUpperCase();
+  const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `SALE-${timePart}-${randomPart}`;
+};
+
+const isTxnRefUniqueConstraintError = (error: unknown): boolean => {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+    return false;
+  }
+  const target = (error.meta as { target?: unknown } | undefined)?.target;
+  if (Array.isArray(target)) {
+    return target.includes("txnRefNo");
+  }
+  if (typeof target === "string") {
+    return target.includes("txnRefNo");
+  }
+  return false;
 };
 
 const applyHourlyAndSoldCountDeltas = async (
@@ -134,28 +163,47 @@ export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
   return await prisma.$transaction(async (tx) => {
     const saleDate = data.date || new Date();
     const quantityMap = buildQuantityMap(data.items);
+    let txnRefNo = normalizeTxnRefNo(data.txnRefNo) ?? generateTxnRefNo();
+    let sale: Sale | null = null;
 
-    // 1. Create the sale
-    const sale = await tx.sale.create({
-      data: {
-        items: data.items,
-        subtotal: data.subtotal,
-        tax: data.tax,
-        discount: data.discount,
-        total: data.total,
-        customerName: data.customerName,
-        customerEmail: data.customerEmail,
-        customerPhone: data.customerPhone,
-        shippingAddress: data.shippingAddress,
-        city: data.city,
-        postalCode: data.postalCode,
-        paymentMethod: data.paymentMethod,
-        paymentStatus: data.paymentStatus,
-        deliveryCharge: data.deliveryCharge,
-        txnRefNo: data.txnRefNo,
-        date: saleDate,
-      },
-    });
+    // 1. Create the sale. If txnRefNo collides, regenerate and retry.
+    for (let attempt = 0; attempt < MAX_TXN_REF_RETRIES; attempt += 1) {
+      try {
+        sale = await tx.sale.create({
+          data: {
+            items: data.items,
+            subtotal: data.subtotal,
+            tax: data.tax,
+            discount: data.discount,
+            total: data.total,
+            customerName: data.customerName,
+            customerEmail: data.customerEmail,
+            customerPhone: data.customerPhone,
+            shippingAddress: data.shippingAddress,
+            city: data.city,
+            postalCode: data.postalCode,
+            paymentMethod: data.paymentMethod,
+            paymentStatus: data.paymentStatus,
+            deliveryCharge: data.deliveryCharge,
+            txnRefNo,
+            date: saleDate,
+          },
+        });
+        break;
+      } catch (error) {
+        if (!isTxnRefUniqueConstraintError(error)) {
+          throw error;
+        }
+        if (attempt === MAX_TXN_REF_RETRIES - 1) {
+          throw error;
+        }
+        txnRefNo = generateTxnRefNo();
+      }
+    }
+
+    if (!sale) {
+      throw new Error("Failed to create sale due to transaction reference conflict");
+    }
 
     // 2. Update stock for each item
     for (const item of data.items) {
@@ -187,6 +235,7 @@ export const updateSale = async (
 
     const previousItems = existingSale.items as unknown as SaleItemInput[];
     const nextSaleDate = data.date || existingSale.date;
+    const normalizedTxnRefNo = normalizeTxnRefNo(data.txnRefNo);
 
     const previousByItemId = new Map<string, number>();
     const nextByItemId = new Map<string, number>();
@@ -269,7 +318,7 @@ export const updateSale = async (
         paymentMethod: data.paymentMethod,
         paymentStatus: data.paymentStatus,
         deliveryCharge: data.deliveryCharge,
-        txnRefNo: data.txnRefNo,
+        txnRefNo: normalizedTxnRefNo,
         date: nextSaleDate,
       },
     });

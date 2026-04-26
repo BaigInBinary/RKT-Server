@@ -19,12 +19,19 @@ export const errorHandler = (
 
   // Handle Prisma errors
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    const targetMeta = (err.meta as { target?: unknown } | undefined)?.target;
+    const targetField = Array.isArray(targetMeta)
+      ? targetMeta.join(", ")
+      : typeof targetMeta === "string"
+        ? targetMeta
+        : undefined;
+
     switch (err.code) {
       case "P2002":
         return res.status(409).json({
           success: false,
           message: "A record with this value already exists",
-          field: (err.meta?.target as string[])?.join(", "),
+          field: targetField,
         });
       case "P2025":
         return res.status(404).json({
