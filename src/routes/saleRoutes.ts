@@ -33,6 +33,11 @@ router.get(
   authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"),
   saleController.getOrders,
 );
+router.get(
+  '/orders/analytics',
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER", "CASHIER"),
+  saleController.getOrderAnalytics,
+);
 router.patch(
   '/orders/:id/status',
   authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),

@@ -53,6 +53,14 @@ export interface SalesAnalytics {
   sales: Sale[];
 }
 
+export interface OrderAnalytics {
+  totalOrders: number;
+  deliveredOrders: number;
+  revenueEligibleOrders: number;
+  totalRevenue: number;
+  orders: Sale[];
+}
+
 type ItemQuantityDelta = Map<string, number>;
 const MAX_TXN_REF_RETRIES = 5;
 const RESTOCK_COURIER_STATUSES = new Set(["returned", "cancelled", "canceled"]);
@@ -110,6 +118,15 @@ const isRestockCourierStatus = (value?: string | null): boolean => {
     return false;
   }
   return RESTOCK_COURIER_STATUSES.has(value.trim().toLowerCase());
+};
+
+const isOnlineRevenueEligible = (order: Pick<Sale, "paymentMethod" | "paymentStatus" | "courierStatus">): boolean => {
+  const paymentMethod = (order.paymentMethod ?? "").trim().toUpperCase();
+  const paymentStatus = (order.paymentStatus ?? "").trim().toUpperCase();
+  const courierStatus = (order.courierStatus ?? "").trim().toUpperCase();
+  const isReturnedOrCancelled =
+    courierStatus === "RETURNED" || courierStatus === "CANCELLED" || courierStatus === "CANCELED";
+  return paymentMethod === "PREPAID" && paymentStatus === "PAID" && !isReturnedOrCancelled;
 };
 
 const isTxnRefUniqueConstraintError = (error: unknown): boolean => {
@@ -480,6 +497,42 @@ export const updateOrderStatus = async (
       },
     });
   });
+};
+
+export const getOrderAnalytics = async (
+  startDate?: Date,
+  endDate?: Date,
+): Promise<OrderAnalytics> => {
+  const orders = await prisma.sale.findMany({
+    where: {
+      shippingAddress: { not: null },
+      ...(startDate || endDate
+        ? {
+            date: {
+              ...(startDate ? { gte: startDate } : {}),
+              ...(endDate ? { lte: endDate } : {}),
+            },
+          }
+        : {}),
+    },
+    orderBy: { date: "desc" },
+  });
+
+  const deliveredOrders = orders.filter((order) => {
+    const status = (order.courierStatus ?? "").trim().toUpperCase();
+    return status === "DELIVERED";
+  }).length;
+
+  const revenueEligibleOrders = orders.filter(isOnlineRevenueEligible);
+  const totalRevenue = revenueEligibleOrders.reduce((sum, order) => sum + order.total, 0);
+
+  return {
+    totalOrders: orders.length,
+    deliveredOrders,
+    revenueEligibleOrders: revenueEligibleOrders.length,
+    totalRevenue,
+    orders,
+  };
 };
 
 export const updateSaleTracking = async (

@@ -84,6 +84,26 @@ export const getOrders = async (req: Request, res: Response, next: NextFunction)
   }
 };
 
+export const getOrderAnalytics = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    const parsedStartDate =
+      typeof startDate === "string" && !Number.isNaN(new Date(startDate).getTime())
+        ? new Date(startDate)
+        : undefined;
+    const parsedEndDate =
+      typeof endDate === "string" && !Number.isNaN(new Date(endDate).getTime())
+        ? new Date(endDate)
+        : undefined;
+
+    const analytics = await saleService.getOrderAnalytics(parsedStartDate, parsedEndDate);
+    res.status(200).json(analytics);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const updateOrderStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
