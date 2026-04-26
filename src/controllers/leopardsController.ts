@@ -3,6 +3,84 @@ import { getAllLeopardsCities, getLeopardsTariff, getLeopardsShipmentHistory, ge
 import { getSaleById, updateSaleTracking } from '../services/saleService';
 import prisma from '../config/prisma';
 
+const parseChequePaymentDate = (value?: string | null): Date | null => {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const isoDate = new Date(normalized);
+  if (!Number.isNaN(isoDate.getTime())) {
+    return isoDate;
+  }
+
+  const match = normalized.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (!match) {
+    return null;
+  }
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  if (!day || !month || !year) {
+    return null;
+  }
+
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const parseSignedAmount = (value: string): number | null => {
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const hasParentheses = normalized.includes("(") && normalized.includes(")");
+  const isNegative = normalized.includes("-") || hasParentheses;
+  const numeric = normalized
+    .replace(/,/g, "")
+    .replace(/[^\d.]/g, "");
+  const parsed = Number(numeric);
+
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return isNegative ? -parsed : parsed;
+};
+
+const extractNetPayableAmountFromHtml = (htmlContent?: string | null): number | null => {
+  if (!htmlContent || typeof htmlContent !== "string") {
+    return null;
+  }
+
+  const plainText = htmlContent
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ");
+  const marker = /net\s*payable\s*amount/i;
+  const markerMatch = marker.exec(plainText);
+
+  if (!markerMatch) {
+    return null;
+  }
+
+  const startIndex = markerMatch.index + markerMatch[0].length;
+  const slice = plainText.slice(startIndex, startIndex + 200);
+  const amountTokenMatch = slice.match(/[+\-]?\s*\(?\d[\d,]*(?:\.\d+)?\)?/);
+  if (!amountTokenMatch) {
+    return null;
+  }
+
+  const parsed = parseSignedAmount(amountTokenMatch[0]);
+  return parsed === null ? null : Math.abs(parsed);
+};
+
 const mapShipmentRecordToApi = (shipment: any) => ({
   booking_date: shipment.bookingDate || "",
   delivery_date: shipment.deliveryDate || "",
@@ -397,18 +475,39 @@ export const saveChequeRecord = async (
   next: NextFunction
 ): Promise<any> => {
   try {
-    const { fileName, htmlContent, isHtml, paymentDate, chequeNumber } = req.body;
+    const { fileName, htmlContent, isHtml, paymentDate, chequeNumber, netPayableAmount } = req.body;
 
     if (!fileName || !htmlContent) {
       return res.status(400).json({ message: "filename and htmlContent are required" });
     }
 
-    if (paymentDate) {
-      const existingRecord = await (prisma as any).chequeRecord.findFirst({
+    const extractedNetPayableAmount = extractNetPayableAmountFromHtml(htmlContent);
+    const parsedNetPayableAmount = Number(netPayableAmount);
+    const finalNetPayableAmount =
+      typeof extractedNetPayableAmount === "number" && Number.isFinite(extractedNetPayableAmount)
+        ? extractedNetPayableAmount
+        : parsedNetPayableAmount;
+
+    if (!Number.isFinite(finalNetPayableAmount)) {
+      return res.status(400).json({ message: "netPayableAmount is required and must be a valid number" });
+    }
+
+    const paymentDateValue = parseChequePaymentDate(paymentDate);
+
+    if (chequeNumber) {
+      const existingByChequeNumber = await (prisma as any).chequeRecord.findFirst({
+        where: { chequeNumber }
+      });
+
+      if (existingByChequeNumber) {
+        return res.status(409).json({ message: `Cheque reference ${chequeNumber} already exists.` });
+      }
+    } else if (paymentDate) {
+      const existingByPaymentDate = await (prisma as any).chequeRecord.findFirst({
         where: { paymentDate }
       });
-      
-      if (existingRecord) {
+
+      if (existingByPaymentDate) {
         return res.status(409).json({ message: `A report with Payment Date ${paymentDate} already exists.` });
       }
     }
@@ -419,7 +518,9 @@ export const saveChequeRecord = async (
         htmlContent,
         isHtml: !!isHtml,
         paymentDate: paymentDate || null,
+        paymentDateValue,
         chequeNumber: chequeNumber || null,
+        netPayableAmount: finalNetPayableAmount,
       },
     });
 
@@ -482,11 +583,41 @@ export const deleteChequeRecord = async (
   next: NextFunction
 ): Promise<any> => {
   try {
+    const shipmentHistoryModel = (prisma as any).shipmentHistory;
     const { id } = req.params;
+    const chequeRecord = await (prisma as any).chequeRecord.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        fileName: true,
+        chequeNumber: true,
+        paymentDate: true,
+      },
+    });
+
+    if (!chequeRecord) {
+      return res.status(404).json({ message: "Record not found" });
+    }
+
     await (prisma as any).chequeRecord.delete({
       where: { id },
     });
-    res.status(200).json({ message: "Record deleted successfully" });
+
+    if (shipmentHistoryModel) {
+      const chequeRef = chequeRecord.chequeNumber || chequeRecord.fileName;
+      await shipmentHistoryModel.updateMany({
+        where: {
+          chequeRef,
+          ...(chequeRecord.paymentDate ? { chequeDate: chequeRecord.paymentDate } : {}),
+        },
+        data: {
+          chequeRef: null,
+          chequeDate: null,
+        },
+      });
+    }
+
+    res.status(200).json({ message: "Record deleted successfully and linked shipment refs were cleared." });
   } catch (error) {
     next(error);
   }

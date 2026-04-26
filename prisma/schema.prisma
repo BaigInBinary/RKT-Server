@@ -125,10 +125,14 @@ model ChequeRecord {
   fileName    String
   htmlContent String
   paymentDate String?
+  paymentDateValue DateTime?
   chequeNumber String?
+  netPayableAmount Float?
   isHtml      Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([paymentDateValue])
 }
 
 model ShipmentHistory {

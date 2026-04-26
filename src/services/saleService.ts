@@ -58,6 +58,12 @@ export interface OrderAnalytics {
   deliveredOrders: number;
   revenueEligibleOrders: number;
   totalRevenue: number;
+  chequeRevenue: {
+    id: string;
+    chequeRef: string;
+    chequeDate: string | null;
+    amount: number;
+  }[];
   orders: Sale[];
 }
 
@@ -127,6 +133,81 @@ const isOnlineRevenueEligible = (order: Pick<Sale, "paymentMethod" | "paymentSta
   const isReturnedOrCancelled =
     courierStatus === "RETURNED" || courierStatus === "CANCELLED" || courierStatus === "CANCELED";
   return paymentMethod === "PREPAID" && paymentStatus === "PAID" && !isReturnedOrCancelled;
+};
+
+const parseChequePaymentDate = (value?: string | null): Date | null => {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const isoDate = new Date(normalized);
+  if (!Number.isNaN(isoDate.getTime())) {
+    return isoDate;
+  }
+
+  const match = normalized.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (!match) {
+    return null;
+  }
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  if (!day || !month || !year) {
+    return null;
+  }
+
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const parseSignedAmount = (value: string): number | null => {
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const hasParentheses = normalized.includes("(") && normalized.includes(")");
+  const isNegative = normalized.includes("-") || hasParentheses;
+  const numeric = normalized
+    .replace(/,/g, "")
+    .replace(/[^\d.]/g, "");
+  const parsed = Number(numeric);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return isNegative ? -parsed : parsed;
+};
+
+const extractNetPayableAmountFromHtml = (htmlContent?: string | null): number | null => {
+  if (!htmlContent || typeof htmlContent !== "string") {
+    return null;
+  }
+
+  const plainText = htmlContent
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ");
+  const marker = /net\s*payable\s*amount/i;
+  const markerMatch = marker.exec(plainText);
+  if (!markerMatch) {
+    return null;
+  }
+
+  const startIndex = markerMatch.index + markerMatch[0].length;
+  const slice = plainText.slice(startIndex, startIndex + 200);
+  const amountTokenMatch = slice.match(/[+\-]?\s*\(?\d[\d,]*(?:\.\d+)?\)?/);
+  if (!amountTokenMatch) {
+    return null;
+  }
+
+  const parsed = parseSignedAmount(amountTokenMatch[0]);
+  return parsed === null ? null : Math.abs(parsed);
 };
 
 const isTxnRefUniqueConstraintError = (error: unknown): boolean => {
@@ -524,13 +605,72 @@ export const getOrderAnalytics = async (
   }).length;
 
   const revenueEligibleOrders = orders.filter(isOnlineRevenueEligible);
-  const totalRevenue = revenueEligibleOrders.reduce((sum, order) => sum + order.total, 0);
+  const chequeRecords = await (prisma as any).chequeRecord.findMany({
+    select: {
+      id: true,
+      fileName: true,
+      chequeNumber: true,
+      paymentDate: true,
+      paymentDateValue: true,
+      htmlContent: true,
+      netPayableAmount: true,
+    },
+    orderBy: {
+      paymentDateValue: "desc",
+    },
+  });
+
+  const chequeRevenue = (chequeRecords as Array<{
+    id: string;
+    fileName: string;
+    chequeNumber: string | null;
+    paymentDate: string | null;
+    paymentDateValue: Date | null;
+    htmlContent: string;
+    netPayableAmount: number | null;
+  }>)
+    .map((record) => {
+      const amountFromHtml = extractNetPayableAmountFromHtml(record.htmlContent);
+      const amount =
+        typeof amountFromHtml === "number" && Number.isFinite(amountFromHtml)
+          ? amountFromHtml
+          :
+        typeof record.netPayableAmount === "number" && Number.isFinite(record.netPayableAmount)
+          ? record.netPayableAmount
+          : null;
+      if (amount === null) {
+        return null;
+      }
+
+      const chequeDateValue = record.paymentDateValue ?? parseChequePaymentDate(record.paymentDate);
+      if (!chequeDateValue) {
+        return null;
+      }
+
+      if (startDate && chequeDateValue < startDate) {
+        return null;
+      }
+      if (endDate && chequeDateValue > endDate) {
+        return null;
+      }
+
+      return {
+        id: record.id,
+        chequeRef: record.chequeNumber || record.fileName,
+        chequeDate: record.paymentDate ?? chequeDateValue.toISOString(),
+        amount,
+      };
+    })
+    .filter((entry): entry is { id: string; chequeRef: string; chequeDate: string | null; amount: number } => !!entry);
+
+  const totalRevenue = chequeRevenue.reduce((sum, entry) => sum + entry.amount, 0);
 
   return {
     totalOrders: orders.length,
     deliveredOrders,
     revenueEligibleOrders: revenueEligibleOrders.length,
     totalRevenue,
+    chequeRevenue,
     orders,
   };
 };
