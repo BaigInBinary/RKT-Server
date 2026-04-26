@@ -23,6 +23,7 @@ export interface CreateSaleInput {
   postalCode?: string;
   paymentMethod?: string;
   paymentStatus?: string;
+  loanDueDate?: Date;
   deliveryCharge?: number;
   txnRefNo?: string;
   date?: Date;
@@ -42,6 +43,7 @@ export interface UpdateSaleInput {
   postalCode?: string;
   paymentMethod?: string;
   paymentStatus?: string;
+  loanDueDate?: Date;
   deliveryCharge?: number;
   txnRefNo?: string;
   date?: Date;
@@ -304,6 +306,7 @@ export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
             postalCode: data.postalCode,
             paymentMethod: data.paymentMethod,
             paymentStatus: data.paymentStatus,
+            loanDueDate: data.loanDueDate,
             deliveryCharge: data.deliveryCharge,
             txnRefNo,
             date: saleDate,
@@ -437,6 +440,7 @@ export const updateSale = async (
         postalCode: data.postalCode,
         paymentMethod: data.paymentMethod,
         paymentStatus: data.paymentStatus,
+        loanDueDate: data.loanDueDate,
         deliveryCharge: data.deliveryCharge,
         txnRefNo: normalizedTxnRefNo,
         date: nextSaleDate,

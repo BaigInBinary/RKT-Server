@@ -221,6 +221,7 @@ model Sale {
   postalCode   String?
   paymentMethod String     @default("cod")
   paymentStatus String     @default("pending")
+  loanDueDate  DateTime?
   deliveryCharge Float      @default(0)
   txnRefNo     String?    @unique
   trackingNumber String?   
