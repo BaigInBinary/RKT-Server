@@ -296,6 +296,7 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
       tags: item.tags || [],
       variants: item.variants || null,
       weightInGrams: item.weightInGrams ?? null,
+      isFreeDelivery: item.isFreeDelivery === true,
       quantity: item.quantity,
       inStock: item.quantity > 0,
       pricing,
@@ -375,6 +376,7 @@ export const getCatalogItemById = async (id: string) => {
     productType: item.productType || null,
     vendor: item.vendor || null,
     weightInGrams: item.weightInGrams ?? null,
+    isFreeDelivery: item.isFreeDelivery === true,
     quantity: item.quantity,
     inStock: item.quantity > 0,
     soldCount: item.soldCount,
@@ -435,6 +437,7 @@ export const getMultipleCatalogItemsByIds = async (ids: string[]) => {
       tags: item.tags || [],
       variants: item.variants || null,
       weightInGrams: item.weightInGrams ?? null,
+      isFreeDelivery: item.isFreeDelivery === true,
       quantity: item.quantity,
       inStock: item.quantity > 0,
       pricing,
@@ -501,6 +504,7 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
       quantity: true,
       subCategoryId: true,
       showOnMainSite: true,
+      isFreeDelivery: true,
     },
   });
   const visibleItems = items.filter(isVisibleOnMainSite);
@@ -536,6 +540,7 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
           category: item.category,
           imageUrl: item.imageUrl,
           pricing,
+          isFreeDelivery: item.isFreeDelivery === true,
           quantity: item.quantity,
           soldLastHours: entry.sold,
           totalSold: item.soldCount,
@@ -583,6 +588,7 @@ export const getNewArrivals = async () => {
       category: item.category,
       imageUrl: item.imageUrl,
       pricing,
+      isFreeDelivery: item.isFreeDelivery === true,
       quantity: item.quantity,
       inStock: item.quantity > 0,
       createdAt: item.createdAt,
@@ -638,6 +644,7 @@ export const getRelatedCatalogItems = async (
     tags: string[];
     variants: Prisma.JsonValue;
     weightInGrams: number | null;
+    isFreeDelivery: boolean | null;
     quantity: number;
     price: number;
     createdAt: Date;
@@ -668,6 +675,7 @@ export const getRelatedCatalogItems = async (
       tags: item.tags || [],
       variants: item.variants || null,
       weightInGrams: item.weightInGrams ?? null,
+      isFreeDelivery: item.isFreeDelivery === true,
       quantity: item.quantity,
       inStock: item.quantity > 0,
       pricing,
@@ -690,6 +698,7 @@ export const getRelatedCatalogItems = async (
     tags: true,
     variants: true,
     weightInGrams: true,
+    isFreeDelivery: true,
     quantity: true,
     price: true,
     createdAt: true,

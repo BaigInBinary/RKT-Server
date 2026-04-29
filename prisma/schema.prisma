@@ -92,6 +92,7 @@ model Item {
   productType       String?
   vendor            String?
   showOnMainSite    Boolean  @default(true)
+  isFreeDelivery    Boolean  @default(false)
   targetedByDiscounts Discount[] @relation("DiscountTargetItem")
   favorites         Favorite[]
   createdAt         DateTime @default(now())

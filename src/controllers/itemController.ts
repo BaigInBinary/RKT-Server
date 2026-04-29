@@ -150,6 +150,11 @@ const normalizeItemPayload = (body: Record<string, unknown>) => {
     payload.showOnMainSite = showOnMainSite;
   }
 
+  const isFreeDelivery = toBoolean(body.isFreeDelivery);
+  if (isFreeDelivery !== undefined) {
+    payload.isFreeDelivery = isFreeDelivery;
+  }
+
   return payload;
 };
 
