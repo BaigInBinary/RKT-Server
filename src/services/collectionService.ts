@@ -36,6 +36,8 @@ const uniqueStrings = (values?: string[]) =>
   Array.from(new Set((values || []).map((v) => v.trim()).filter(Boolean)));
 
 const isMongoObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value);
+const isVisibleOnMainSite = (item: { showOnMainSite?: boolean | null }) =>
+  item.showOnMainSite !== false;
 
 const buildPublicCollectionIdentifierFilter = (idOrSlug: string): Prisma.CollectionWhereInput => {
   if (isMongoObjectId(idOrSlug)) {
@@ -81,9 +83,9 @@ const loadResolvedItemIds = async (collectionId: string) => {
       where: {
         category: { in: selectedCategoryNames },
       },
-      select: { id: true },
+      select: { id: true, showOnMainSite: true },
     });
-    categoryItems.forEach((item) => ids.add(item.id));
+    categoryItems.filter(isVisibleOnMainSite).forEach((item) => ids.add(item.id));
   }
 
   const allSubCategoryIds = collection.subCategorySelections
@@ -95,9 +97,9 @@ const loadResolvedItemIds = async (collectionId: string) => {
       where: {
         subCategoryId: { in: allSubCategoryIds },
       },
-      select: { id: true },
+      select: { id: true, showOnMainSite: true },
     });
-    items.forEach((item) => ids.add(item.id));
+    items.filter(isVisibleOnMainSite).forEach((item) => ids.add(item.id));
   }
 
   collection.subCategorySelections
@@ -356,18 +358,19 @@ export const getCollectionItemsPublic = async (
     ];
   }
 
-  const [items, totalItems] = await Promise.all([
-    prisma.item.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
-    prisma.item.count({ where }),
-  ]);
+  const items = await prisma.item.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+  });
+  const visibleItems = items.filter(isVisibleOnMainSite);
+  const searchedItems = query.search && query.search.trim()
+    ? visibleItems
+    : visibleItems;
+  const totalItems = searchedItems.length;
+  const paginatedItems = searchedItems.slice((page - 1) * limit, page * limit);
 
   return {
-    data: items,
+    data: paginatedItems,
     meta: {
       page,
       limit,

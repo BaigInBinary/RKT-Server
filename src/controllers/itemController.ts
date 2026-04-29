@@ -65,6 +65,26 @@ const toJson = (value: unknown): unknown => {
   return value;
 };
 
+const toBoolean = (value: unknown): boolean | undefined => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "0", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return undefined;
+};
+
 const normalizeItemPayload = (body: Record<string, unknown>) => {
   const payload: Record<string, unknown> = { ...body };
 
@@ -123,6 +143,11 @@ const normalizeItemPayload = (body: Record<string, unknown>) => {
 
   if (body.vendor !== undefined) {
     payload.vendor = body.vendor === null || body.vendor === "" ? null : String(body.vendor);
+  }
+
+  const showOnMainSite = toBoolean(body.showOnMainSite);
+  if (showOnMainSite !== undefined) {
+    payload.showOnMainSite = showOnMainSite;
   }
 
   return payload;

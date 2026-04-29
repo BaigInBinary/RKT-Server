@@ -91,6 +91,7 @@ model Item {
   tags              String[] @default([])
   productType       String?
   vendor            String?
+  showOnMainSite    Boolean  @default(true)
   targetedByDiscounts Discount[] @relation("DiscountTargetItem")
   favorites         Favorite[]
   createdAt         DateTime @default(now())

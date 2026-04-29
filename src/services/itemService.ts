@@ -31,6 +31,8 @@ type PurchaseRule = {
 };
 
 const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+const isVisibleOnMainSite = (item: { showOnMainSite?: boolean | null }) =>
+  item.showOnMainSite !== false;
 
 const parsePurchaseRules = (value: unknown): PurchaseRule[] => {
   if (!Array.isArray(value)) {
@@ -242,7 +244,7 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
   const sortBy = query.sortBy || "createdAt";
   const sortOrder = query.sortOrder || "desc";
 
-  const [items, totalItems, activeDiscounts] = await Promise.all([
+  const [items, activeDiscounts] = await Promise.all([
     prisma.item.findMany({
       where,
       include: {
@@ -254,10 +256,7 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
         },
       },
       orderBy: { [sortBy]: sortOrder },
-      skip: (page - 1) * limit,
-      take: limit,
     }),
-    prisma.item.count({ where }),
     prisma.discount.findMany({
       where: { isActive: true },
       orderBy: { createdAt: "asc" },
@@ -267,7 +266,11 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
   const now = new Date();
   const discounts = activeDiscounts.filter((discount) => isDiscountActive(discount, now));
 
-  const data = items.map((item) => {
+  const visibleItems = items.filter(isVisibleOnMainSite);
+  const totalItems = visibleItems.length;
+  const paginatedItems = visibleItems.slice((page - 1) * limit, page * limit);
+
+  const data = paginatedItems.map((item) => {
     const pricing = applyListingDiscounts(
       item.price,
       {
@@ -338,6 +341,9 @@ export const getCatalogItemById = async (id: string) => {
   if (!item) {
     return null;
   }
+  if (!isVisibleOnMainSite(item)) {
+    return null;
+  }
 
   const now = new Date();
   const discounts = activeDiscounts.filter((discount) => isDiscountActive(discount, now));
@@ -403,7 +409,7 @@ export const getMultipleCatalogItemsByIds = async (ids: string[]) => {
   const now = new Date();
   const discounts = activeDiscounts.filter((discount) => isDiscountActive(discount, now));
 
-  return items.map((item) => {
+  return items.filter(isVisibleOnMainSite).map((item) => {
     const pricing = applyListingDiscounts(
       item.price,
       {
@@ -494,9 +500,11 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
       soldCount: true,
       quantity: true,
       subCategoryId: true,
+      showOnMainSite: true,
     },
   });
-  const itemById = new Map(items.map((item) => [item.id, item]));
+  const visibleItems = items.filter(isVisibleOnMainSite);
+  const itemById = new Map(visibleItems.map((item) => [item.id, item]));
 
   const activeDiscounts = await prisma.discount.findMany({
     where: { isActive: true },
@@ -557,7 +565,7 @@ export const getNewArrivals = async () => {
   const now = new Date();
   const discounts = activeDiscounts.filter((discount) => isDiscountActive(discount, now));
 
-  return items.map((item) => {
+  return items.filter(isVisibleOnMainSite).map((item) => {
     const pricing = applyListingDiscounts(
       item.price,
       {
@@ -592,10 +600,14 @@ export const getRelatedCatalogItems = async (
       id: true,
       category: true,
       subCategoryId: true,
+      showOnMainSite: true,
     },
   });
 
   if (!sourceItem) {
+    return null;
+  }
+  if (!isVisibleOnMainSite(sourceItem)) {
     return null;
   }
 
@@ -630,6 +642,7 @@ export const getRelatedCatalogItems = async (
     price: number;
     createdAt: Date;
     updatedAt: Date;
+    showOnMainSite: boolean | null;
   }) => {
     const pricing = applyListingDiscounts(
       item.price,
@@ -681,6 +694,7 @@ export const getRelatedCatalogItems = async (
     price: true,
     createdAt: true,
     updatedAt: true,
+    showOnMainSite: true,
   } as const;
 
   const subCategoryMatches = sourceItem.subCategoryId
@@ -695,7 +709,7 @@ export const getRelatedCatalogItems = async (
       })
     : [];
 
-  let relatedItems = subCategoryMatches;
+  let relatedItems = subCategoryMatches.filter(isVisibleOnMainSite);
 
   if (relatedItems.length < limit) {
     const fallbackItems = await prisma.item.findMany({
@@ -710,7 +724,7 @@ export const getRelatedCatalogItems = async (
       select: commonSelect,
     });
 
-    relatedItems = [...relatedItems, ...fallbackItems];
+    relatedItems = [...relatedItems, ...fallbackItems].filter(isVisibleOnMainSite);
   }
 
   return {
