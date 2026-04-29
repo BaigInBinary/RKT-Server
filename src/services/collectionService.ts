@@ -496,24 +496,21 @@ export const updateCollection = async (
 };
 
 export const deleteCollection = async (id: string) => {
-  return prisma.$transaction(async (tx) => {
-    const selectionRows = await tx.collectionSubCategorySelection.findMany({
-      where: { collectionId: id },
-      select: { id: true },
-    });
-    if (selectionRows.length > 0) {
-      await tx.collectionSubCategoryItem.deleteMany({
-        where: {
-          subCategorySelectionId: {
-            in: selectionRows.map((entry) => entry.id),
+  const [, , , , deletedCollection] = await prisma.$transaction([
+    prisma.collectionSubCategoryItem.deleteMany({
+      where: {
+        subCategorySelection: {
+          is: {
+            collectionId: id,
           },
         },
-      });
-    }
+      },
+    }),
+    prisma.collectionCategorySelection.deleteMany({ where: { collectionId: id } }),
+    prisma.collectionSubCategorySelection.deleteMany({ where: { collectionId: id } }),
+    prisma.collectionItemSelection.deleteMany({ where: { collectionId: id } }),
+    prisma.collection.delete({ where: { id } }),
+  ]);
 
-    await tx.collectionCategorySelection.deleteMany({ where: { collectionId: id } });
-    await tx.collectionSubCategorySelection.deleteMany({ where: { collectionId: id } });
-    await tx.collectionItemSelection.deleteMany({ where: { collectionId: id } });
-    return tx.collection.delete({ where: { id } });
-  });
+  return deletedCollection;
 };
