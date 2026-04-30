@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as saleService from '../services/saleService';
 import { sendOrderBookedEmail } from "../services/orderNotificationService";
+import { uploadImageBuffer } from "../config/cloudinary";
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
@@ -63,6 +64,16 @@ const validateSalePayload = (payload: unknown): string | null => {
   for (const field of numberFields) {
     if (!isFiniteNumber(body[field])) {
       return `\`${field}\` must be a valid number.`;
+    }
+  }
+
+  const paymentMethod =
+    typeof body.paymentMethod === "string" ? body.paymentMethod.trim().toUpperCase() : "";
+  if (paymentMethod === "BANK_DEPOSIT") {
+    const bankReceiptUrl =
+      typeof body.bankReceiptUrl === "string" ? body.bankReceiptUrl.trim() : "";
+    if (!bankReceiptUrl) {
+      return "`bankReceiptUrl` is required for bank deposit orders.";
     }
   }
 
@@ -162,6 +173,22 @@ export const getOrders = async (req: Request, res: Response, next: NextFunction)
   }
 };
 
+export const uploadSaleReceipt = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Receipt image is required" });
+    }
+
+    const uploadedImage = await uploadImageBuffer(req.file.buffer, "bank-receipts");
+    return res.status(200).json({
+      receiptUrl: uploadedImage.secure_url,
+      publicId: uploadedImage.public_id,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getOrderAnalytics = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { startDate, endDate } = req.query;
@@ -242,6 +269,12 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
             "Booked",
             bookingResponse.order_id 
           );
+
+          if ((existingOrder.paymentMethod ?? "").trim().toUpperCase() === "BANK_DEPOSIT") {
+            await saleService.updateOrderStatus(existingOrder.id, {
+              paymentStatus: "paid",
+            });
+          }
           
           // Return immediately with updated order
           const updated = await saleService.getSaleById(orderId);

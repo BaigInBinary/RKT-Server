@@ -223,6 +223,8 @@ model Sale {
   postalCode   String?
   paymentMethod String     @default("cod")
   paymentStatus String     @default("pending")
+  bankReceiptUrl String?
+  bankReceiptPublicId String?
   loanDueDate  DateTime?
   deliveryCharge Float      @default(0)
   txnRefNo     String?    @unique

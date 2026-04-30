@@ -23,6 +23,8 @@ export interface CreateSaleInput {
   postalCode?: string;
   paymentMethod?: string;
   paymentStatus?: string;
+  bankReceiptUrl?: string;
+  bankReceiptPublicId?: string;
   loanDueDate?: Date;
   deliveryCharge?: number;
   txnRefNo?: string;
@@ -43,6 +45,8 @@ export interface UpdateSaleInput {
   postalCode?: string;
   paymentMethod?: string;
   paymentStatus?: string;
+  bankReceiptUrl?: string;
+  bankReceiptPublicId?: string;
   loanDueDate?: Date;
   deliveryCharge?: number;
   txnRefNo?: string;
@@ -181,8 +185,15 @@ const isOnlineRevenueEligible = (order: Pick<Sale, "paymentMethod" | "paymentSta
   const courierStatus = (order.courierStatus ?? "").trim().toUpperCase();
   const isReturnedOrCancelled =
     courierStatus === "RETURNED" || courierStatus === "CANCELLED" || courierStatus === "CANCELED";
-  return paymentMethod === "PREPAID" && paymentStatus === "PAID" && !isReturnedOrCancelled;
+  const isOnlinePaidMethod = paymentMethod === "PREPAID" || paymentMethod === "BANK_DEPOSIT";
+  return isOnlinePaidMethod && paymentStatus === "PAID" && !isReturnedOrCancelled;
 };
+
+const isBookedStatus = (value?: string | null) =>
+  (value ?? "").trim().toUpperCase() === "BOOKED";
+
+const isBankDepositPaymentMethod = (value?: string | null) =>
+  (value ?? "").trim().toUpperCase() === "BANK_DEPOSIT";
 
 const parseChequePaymentDate = (value?: string | null): Date | null => {
   if (!value || typeof value !== "string") {
@@ -353,6 +364,8 @@ export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
             postalCode: data.postalCode,
             paymentMethod: data.paymentMethod,
             paymentStatus: data.paymentStatus,
+            bankReceiptUrl: data.bankReceiptUrl,
+            bankReceiptPublicId: data.bankReceiptPublicId,
             loanDueDate: data.loanDueDate,
             deliveryCharge: data.deliveryCharge,
             txnRefNo,
@@ -487,6 +500,8 @@ export const updateSale = async (
         postalCode: data.postalCode,
         paymentMethod: data.paymentMethod,
         paymentStatus: data.paymentStatus,
+        bankReceiptUrl: data.bankReceiptUrl,
+        bankReceiptPublicId: data.bankReceiptPublicId,
         loanDueDate: data.loanDueDate,
         deliveryCharge: data.deliveryCharge,
         txnRefNo: normalizedTxnRefNo,
@@ -546,8 +561,9 @@ export const getSaleByTxnRefNo = async (txnRefNo: string): Promise<Sale | null> 
 };
 
 export const getSaleByTrackingNumber = async (trackingNumber: string): Promise<Sale | null> => {
-  return await prisma.sale.findUnique({
-    where: { trackingNumber },
+  return await prisma.sale.findFirst({
+    where: { trackingNumber: trackingNumber.trim() },
+    orderBy: { date: "desc" },
   });
 };
 
@@ -592,6 +608,14 @@ export const updateOrderStatus = async (
       ? normalizeCourierStatus(data.courierStatus) ?? existingOrder.courierStatus ?? undefined
       : existingOrder.courierStatus ?? undefined;
 
+    let nextPaymentStatus =
+      data.paymentStatus !== undefined ? data.paymentStatus : existingOrder.paymentStatus ?? undefined;
+
+    // Bank deposit orders are considered paid once admin confirms booking.
+    if (isBankDepositPaymentMethod(existingOrder.paymentMethod) && isBookedStatus(nextCourierStatus)) {
+      nextPaymentStatus = "paid";
+    }
+
     const becameRestocked =
       !isRestockCourierStatus(existingOrder.courierStatus) &&
       isRestockCourierStatus(nextCourierStatus);
@@ -631,7 +655,7 @@ export const updateOrderStatus = async (
       where: { id },
       data: {
         ...(data.courierStatus !== undefined && { courierStatus: nextCourierStatus }),
-        ...(data.paymentStatus !== undefined && { paymentStatus: data.paymentStatus }),
+        ...(nextPaymentStatus !== undefined && { paymentStatus: nextPaymentStatus }),
       },
     });
   }, "updateOrderStatus");
@@ -720,7 +744,7 @@ export const getOrderAnalytics = async (
     })
     .filter((entry): entry is { id: string; chequeRef: string; chequeDate: string | null; amount: number } => !!entry);
 
-  const totalRevenue = chequeRevenue.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalRevenue = revenueEligibleOrders.reduce((sum, order) => sum + order.total, 0);
 
   return {
     totalOrders: orders.length,

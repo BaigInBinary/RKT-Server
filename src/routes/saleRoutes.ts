@@ -1,5 +1,6 @@
 import express, { type Router } from 'express';
 import * as saleController from '../controllers/saleController';
+import { imageUpload } from "../middlewares/uploadMiddleware";
 import { authenticate, authorizeAccountTypes, authorizeRoles } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
@@ -7,6 +8,12 @@ const router: Router = express.Router();
 router.post(
   '/',
   saleController.createSale,
+);
+
+router.post(
+  "/upload-receipt",
+  imageUpload.single("receipt"),
+  saleController.uploadSaleReceipt,
 );
 
 router.get(
