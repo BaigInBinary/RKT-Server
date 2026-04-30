@@ -2,6 +2,73 @@ import { Request, Response, NextFunction } from 'express';
 import * as saleService from '../services/saleService';
 import { sendOrderBookedEmail } from "../services/orderNotificationService";
 
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+const validateSaleItems = (items: unknown): string | null => {
+  if (!Array.isArray(items)) {
+    return "`items` must be an array.";
+  }
+
+  if (items.length === 0) {
+    return "`items` must contain at least one item.";
+  }
+
+  for (let index = 0; index < items.length; index += 1) {
+    const entry = items[index];
+    if (!entry || typeof entry !== "object") {
+      return `items[${index}] must be an object.`;
+    }
+
+    const item = entry as Record<string, unknown>;
+    const itemId = typeof item.itemId === "string" ? item.itemId.trim() : "";
+    const name = typeof item.name === "string" ? item.name.trim() : "";
+
+    if (!itemId) {
+      return `items[${index}].itemId is required.`;
+    }
+
+    if (!name) {
+      return `items[${index}].name is required.`;
+    }
+
+    if (!isFiniteNumber(item.price) || item.price < 0) {
+      return `items[${index}].price must be a valid number >= 0.`;
+    }
+
+    if (!isFiniteNumber(item.quantity) || item.quantity <= 0) {
+      return `items[${index}].quantity must be a valid number > 0.`;
+    }
+
+    if (!isFiniteNumber(item.total) || item.total < 0) {
+      return `items[${index}].total must be a valid number >= 0.`;
+    }
+  }
+
+  return null;
+};
+
+const validateSalePayload = (payload: unknown): string | null => {
+  if (!payload || typeof payload !== "object") {
+    return "Invalid request body.";
+  }
+
+  const body = payload as Record<string, unknown>;
+  const itemsError = validateSaleItems(body.items);
+  if (itemsError) {
+    return itemsError;
+  }
+
+  const numberFields = ["subtotal", "tax", "discount", "total"] as const;
+  for (const field of numberFields) {
+    if (!isFiniteNumber(body[field])) {
+      return `\`${field}\` must be a valid number.`;
+    }
+  }
+
+  return null;
+};
+
 export const getSales = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const sales = await saleService.getAllSales();
@@ -15,6 +82,11 @@ import { bookLeopardsShipment } from '../services/leopardsService';
 
 export const createSale = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const validationError = validateSalePayload(req.body);
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
+    }
+
     const sale = await saleService.createSale(req.body);
     
 
@@ -59,6 +131,11 @@ export const getAnalytics = async (req: Request, res: Response, next: NextFuncti
 export const updateSale = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const saleId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const validationError = validateSalePayload(req.body);
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
+    }
+
     const sale = await saleService.updateSale(saleId, req.body);
     res.status(200).json(sale);
   } catch (error) {

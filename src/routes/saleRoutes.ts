@@ -6,7 +6,6 @@ const router: Router = express.Router();
 
 router.post(
   '/',
-  authenticate,
   saleController.createSale,
 );
 
