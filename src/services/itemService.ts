@@ -33,6 +33,87 @@ type PurchaseRule = {
 const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const isVisibleOnMainSite = (item: { showOnMainSite?: boolean | null }) =>
   item.showOnMainSite !== false;
+const SKU_PREFIX_REGEX = /^SKU-/i;
+const MAX_WRITE_CONFLICT_RETRIES = 5;
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const isWriteConflictError = (error: unknown) =>
+  !!error && typeof error === "object" && (error as { code?: string }).code === "P2034";
+
+const withWriteConflictRetry = async <T>(
+  operation: () => Promise<T>,
+  maxRetries = MAX_WRITE_CONFLICT_RETRIES,
+): Promise<T> => {
+  let attempts = 0;
+
+  while (true) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isWriteConflictError(error) || attempts >= maxRetries) {
+        throw error;
+      }
+
+      // Exponential backoff with jitter to reduce repeated lock collisions.
+      const delayMs = 50 * 2 ** attempts + Math.floor(Math.random() * 75);
+      attempts += 1;
+      await sleep(delayMs);
+    }
+  }
+};
+
+const stripSkuPrefix = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const stripped = trimmed.replace(SKU_PREFIX_REGEX, "").trim();
+  return stripped || trimmed;
+};
+
+const normalizeCreateSku = (data: CreateItemInput): CreateItemInput => {
+  if (typeof data.sku !== "string") {
+    return data;
+  }
+  return {
+    ...data,
+    sku: stripSkuPrefix(data.sku),
+  };
+};
+
+const normalizeUpdateSku = (data: UpdateItemInput): UpdateItemInput => {
+  const rawSku = data.sku;
+  if (rawSku === undefined) {
+    return data;
+  }
+
+  if (typeof rawSku === "string") {
+    return {
+      ...data,
+      sku: stripSkuPrefix(rawSku),
+    };
+  }
+
+  if (
+    rawSku &&
+    typeof rawSku === "object" &&
+    "set" in rawSku &&
+    typeof (rawSku as { set?: unknown }).set === "string"
+  ) {
+    return {
+      ...data,
+      sku: {
+        set: stripSkuPrefix((rawSku as { set: string }).set),
+      },
+    };
+  }
+
+  return data;
+};
 
 const parsePurchaseRules = (value: unknown): PurchaseRule[] => {
   if (!Array.isArray(value)) {
@@ -747,9 +828,93 @@ export const getItemById = async (id: string): Promise<Item | null> => {
   });
 };
 
+export const stripLegacySkuPrefixFromExistingItems = async () => {
+  const items = await prisma.item.findMany({
+    select: {
+      id: true,
+      sku: true,
+    },
+  });
+
+  const skuByKey = new Map<string, Set<string>>();
+  items.forEach((item) => {
+    const key = item.sku.trim().toLowerCase();
+    if (!skuByKey.has(key)) {
+      skuByKey.set(key, new Set<string>());
+    }
+    skuByKey.get(key)?.add(item.id);
+  });
+
+  let updated = 0;
+  let skipped = 0;
+  let conflicts = 0;
+  let changedWhileProcessing = 0;
+
+  for (const item of items) {
+    const rawSku = item.sku;
+    const currentSku = rawSku.trim();
+    if (!SKU_PREFIX_REGEX.test(currentSku)) {
+      continue;
+    }
+
+    const nextSku = stripSkuPrefix(rawSku);
+    if (!nextSku || nextSku === currentSku) {
+      continue;
+    }
+
+    const nextKey = nextSku.toLowerCase();
+    const conflictingIds = Array.from(skuByKey.get(nextKey) ?? []).filter(
+      (id) => id !== item.id,
+    );
+
+    if (conflictingIds.length > 0) {
+      skipped += 1;
+      continue;
+    }
+
+    try {
+      const result = await withWriteConflictRetry(() =>
+        prisma.item.updateMany({
+          where: { id: item.id, sku: rawSku },
+          data: { sku: nextSku },
+        }),
+      );
+
+      if (result.count === 0) {
+        changedWhileProcessing += 1;
+        continue;
+      }
+    } catch (error) {
+      if (isWriteConflictError(error)) {
+        conflicts += 1;
+        continue;
+      }
+      throw error;
+    }
+
+    const oldKey = currentSku.toLowerCase();
+    skuByKey.get(oldKey)?.delete(item.id);
+    if (!skuByKey.has(nextKey)) {
+      skuByKey.set(nextKey, new Set<string>());
+    }
+    skuByKey.get(nextKey)?.add(item.id);
+
+    updated += 1;
+  }
+
+  return {
+    scanned: items.length,
+    updated,
+    skipped,
+    conflicts,
+    changedWhileProcessing,
+  };
+};
+
 export const createItem = async (data: CreateItemInput): Promise<Item> => {
+  const normalizedData = normalizeCreateSku(data);
   return await prisma.item.create({
-    data,
+    data: normalizedData,
   });
 };
 
@@ -757,9 +922,10 @@ export const updateItem = async (
   id: string,
   data: UpdateItemInput,
 ): Promise<Item> => {
+  const normalizedData = normalizeUpdateSku(data);
   return await prisma.item.update({
     where: { id },
-    data,
+    data: normalizedData,
   });
 };
 

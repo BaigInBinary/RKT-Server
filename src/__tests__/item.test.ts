@@ -3,9 +3,11 @@ import app from "../app";
 
 describe("Item API", () => {
   let createdItemId: string;
+  const rawSku = `SKU-${Date.now()}`;
+  const normalizedSku = rawSku.replace(/^SKU-/i, "");
   const testItem = {
     name: `Test Item ${Date.now()}`,
-    sku: `SKU-${Date.now()}`,
+    sku: rawSku,
     category: "Electronics",
     price: 99.99,
     costPrice: 50.0,
@@ -44,7 +46,7 @@ describe("Item API", () => {
       expect(response.status).toBe(201);
       expect(response.body).toHaveProperty("id");
       expect(response.body.name).toBe(testItem.name);
-      expect(response.body.sku).toBe(testItem.sku);
+      expect(response.body.sku).toBe(normalizedSku);
       expect(response.body.price).toBe(testItem.price);
       expect(response.body.quantity).toBe(testItem.quantity);
       expect(response.body.shortDescription).toBe(testItem.shortDescription);
