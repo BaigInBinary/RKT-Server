@@ -45,7 +45,8 @@ export const upsertSitePageContent = async (
   }
 
   const sections = normalizeSections(payload.sections || []);
-  if (sections.length === 0) {
+  const allowEmptySections = slug === "home-category-sections";
+  if (sections.length === 0 && !allowEmptySections) {
     throw new Error("At least one content section is required");
   }
 

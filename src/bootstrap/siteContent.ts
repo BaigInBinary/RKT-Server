@@ -8,6 +8,14 @@ const DEFAULT_SITE_PAGES: Array<{
   sections: Array<{ heading: string; description: string }>;
 }> = [
   {
+    slug: "home-category-sections",
+    pageTitle: "Homepage Category Sections",
+    lastUpdatedLabel: "May 1, 2026",
+    introText:
+      "Select categories to show on homepage below Best Selling. Each selected category appears as its own product section.",
+    sections: [],
+  },
+  {
     slug: "terms-of-service",
     pageTitle: "Terms of Service",
     lastUpdatedLabel: "August 7, 2025",
