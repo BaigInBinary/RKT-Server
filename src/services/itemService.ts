@@ -1,5 +1,6 @@
 import prisma from "../config/prisma";
 import { Discount, DiscountScope, DiscountType, Item, Prisma } from "@prisma/client";
+import { generateItemSlug } from "../utils/slugUtils";
 
 export type CreateItemInput = Prisma.ItemCreateInput;
 export type UpdateItemInput = Prisma.ItemUpdateInput;
@@ -434,6 +435,7 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
 
     return {
       id: item.id,
+      slug: item.slug || null,
       name: item.name,
       sku: item.sku,
       category: item.category,
@@ -527,6 +529,7 @@ export const getCatalogItemById = async (id: string) => {
 
   return {
     id: item.id,
+    slug: (item as any).slug || null,
     name: item.name,
     sku: item.sku,
     category: item.category,
@@ -554,6 +557,128 @@ export const getCatalogItemById = async (id: string) => {
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
+};
+
+/**
+ * Fetch catalog item by slug or ID (with backward compatibility)
+ * First tries to find by slug, then falls back to ID lookup
+ */
+export const getCatalogItemBySlugOrId = async (slugOrId: string) => {
+  let item;
+
+  // First try to find by slug if it looks like a slug (not a MongoDB ObjectId)
+  if (slugOrId && !/^[0-9a-fA-F]{24}$/.test(slugOrId)) {
+    // Use raw query since slug field may not be recognized until Prisma migration
+    // Try to find by slug using raw query
+    try {
+      const items = await (prisma.item.findMany as any)({
+        where: {
+          slug: slugOrId,
+        },
+        include: {
+          subCategory: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        take: 1,
+      });
+
+      if (items.length > 0) {
+        item = items[0];
+      }
+    } catch (error) {
+      // If slug query fails, just continue to ID lookup
+      // This is expected before Prisma migration runs
+    }
+  }
+
+  // If slug lookup failed or wasn't attempted, fall through to ID lookup
+  if (!item) {
+    return getCatalogItemById(slugOrId);
+  }
+
+  if (!isVisibleOnMainSite(item)) {
+    return null;
+  }
+
+  const activeDiscounts = await prisma.discount.findMany({
+    where: { isActive: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const now = new Date();
+  const discounts = activeDiscounts.filter((discount) => isDiscountActive(discount, now));
+  const pricing = applyListingDiscounts(
+    item.price,
+    {
+      id: item.id,
+      category: item.category,
+      subCategoryId: item.subCategoryId,
+    },
+    discounts,
+  );
+
+  return {
+    id: item.id,
+    name: item.name,
+    slug: (item as any).slug || null,
+    sku: item.sku,
+    category: item.category,
+    subCategoryId: item.subCategoryId,
+    subCategoryName: item.subCategory?.name || null,
+    imageUrl: item.imageUrl,
+    galleryImages: item.galleryImages || [],
+    shortDescription: item.shortDescription,
+    features: item.features || [],
+    specifications: item.specifications || null,
+    reviews: item.reviews || null,
+    variants: item.variants || null,
+    tags: item.tags || [],
+    productType: item.productType || null,
+    vendor: item.vendor || null,
+    weightInGrams: item.weightInGrams ?? null,
+    isFreeDelivery: item.isFreeDelivery === true,
+    quantity: item.quantity,
+    inStock: item.quantity > 0,
+    soldCount: item.soldCount,
+    viewerCount: item.viewerCount,
+    averageRating: item.averageRating,
+    reviewCount: item.reviewCount,
+    pricing,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+};
+
+/**
+ * Fetch item by slug or ID for admin panel (with backward compatibility)
+ */
+export const getItemBySlugOrId = async (slugOrId: string): Promise<Item | null> => {
+  // First try to find by slug if it doesn't look like a MongoDB ObjectId
+  if (slugOrId && !/^[0-9a-fA-F]{24}$/.test(slugOrId)) {
+    try {
+      const items = await (prisma.item.findMany as any)({
+        where: {
+          slug: slugOrId,
+        },
+        take: 1,
+      });
+
+      if (items.length > 0) {
+        return items[0];
+      }
+    } catch (error) {
+      // If slug query fails, just continue to ID lookup
+    }
+  }
+
+  // Fallback to ID lookup
+  return prisma.item.findUnique({
+    where: { id: slugOrId },
+  });
 };
 
 export const getMultipleCatalogItemsByIds = async (ids: string[]) => {
@@ -591,6 +716,7 @@ export const getMultipleCatalogItemsByIds = async (ids: string[]) => {
 
     return {
       id: item.id,
+      slug: (item as any).slug || null,
       name: item.name,
       sku: item.sku,
       category: item.category,
@@ -662,6 +788,7 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
     where: { id: { in: ids } },
     select: {
       id: true,
+      slug: true,
       name: true,
       sku: true,
       category: true,
@@ -702,6 +829,7 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
         );
         return {
           id: item.id,
+          slug: item.slug || null,
           name: item.name,
           sku: item.sku,
           category: item.category,
@@ -750,6 +878,7 @@ export const getNewArrivals = async () => {
 
     return {
       id: item.id,
+      slug: item.slug || null,
       name: item.name,
       sku: item.sku,
       category: item.category,
@@ -799,6 +928,7 @@ export const getRelatedCatalogItems = async (
 
   const mapCatalogCard = (item: {
     id: string;
+    slug: string | null;
     name: string;
     sku: string;
     category: string;
@@ -830,6 +960,7 @@ export const getRelatedCatalogItems = async (
 
     return {
       id: item.id,
+      slug: item.slug || null,
       name: item.name,
       sku: item.sku,
       category: item.category,
@@ -853,6 +984,7 @@ export const getRelatedCatalogItems = async (
 
   const commonSelect = {
     id: true,
+    slug: true,
     name: true,
     sku: true,
     category: true,
@@ -999,6 +1131,16 @@ export const stripLegacySkuPrefixFromExistingItems = async () => {
 
 export const createItem = async (data: CreateItemInput): Promise<Item> => {
   const normalizedData = normalizeCreateSku(data);
+  
+  // Generate slug from name if not provided
+  if (normalizedData.name && !(normalizedData as Record<string, unknown>).slug) {
+    const generatedSlug = await generateItemSlug(normalizedData.name);
+    if (generatedSlug) {
+      // @ts-ignore - slug field will be available after Prisma migration
+      normalizedData.slug = generatedSlug;
+    }
+  }
+  
   return await prisma.item.create({
     data: normalizedData,
   });
@@ -1009,6 +1151,22 @@ export const updateItem = async (
   data: UpdateItemInput,
 ): Promise<Item> => {
   const normalizedData = normalizeUpdateSku(data);
+  
+  // If name is being updated and slug is not provided, regenerate slug
+  if (normalizedData.name && !(normalizedData as Record<string, unknown>).slug) {
+    const nameValue = typeof normalizedData.name === "string" 
+      ? normalizedData.name 
+      : (normalizedData.name as Record<string, unknown>)?.set;
+    
+    if (nameValue && typeof nameValue === "string") {
+      const generatedSlug = await generateItemSlug(nameValue, id);
+      if (generatedSlug) {
+        // @ts-ignore - slug field will be available after Prisma migration
+        normalizedData.slug = generatedSlug ? { set: generatedSlug } : undefined;
+      }
+    }
+  }
+  
   return await prisma.item.update({
     where: { id },
     data: normalizedData,

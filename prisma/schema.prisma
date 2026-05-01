@@ -67,6 +67,7 @@ enum CollectionSubCategoryMode {
 model Item {
   id                String   @id @default(auto()) @map("_id") @db.ObjectId
   name              String
+  slug              String?
   sku               String   @unique
   category          String
   subCategoryId     String?  @db.ObjectId

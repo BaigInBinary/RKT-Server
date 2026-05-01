@@ -299,7 +299,7 @@ export const getCatalogItem = async (
   next: NextFunction,
 ) => {
   try {
-    const item = await itemService.getCatalogItemById(req.params.id as string);
+    const item = await itemService.getCatalogItemBySlugOrId(req.params.id as string);
     if (!item) {
       return res.status(404).json({ message: "Item not found" });
     }
@@ -340,7 +340,7 @@ export const getNewArrivals = async (req: Request, res: Response, next: NextFunc
 
 export const getItem = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const item = await itemService.getItemById(req.params.id as string);
+    const item = await itemService.getItemBySlugOrId(req.params.id as string);
     if (!item) {
       return res.status(404).json({ message: 'Item not found' });
     }
