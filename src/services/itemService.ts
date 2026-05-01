@@ -6,6 +6,7 @@ export type UpdateItemInput = Prisma.ItemUpdateInput;
 
 export type CatalogSortBy = "createdAt" | "price" | "name" | "soldCount";
 export type CatalogSortOrder = "asc" | "desc";
+export type CatalogStockFilter = "all" | "in" | "out";
 
 export interface CatalogQueryInput {
   page?: number;
@@ -13,9 +14,10 @@ export interface CatalogQueryInput {
   search?: string;
   categories?: string[];
   subCategoryIds?: string[];
+  productTypes?: string[];
   minPrice?: number;
   maxPrice?: number;
-  inStockOnly?: boolean;
+  stock?: CatalogStockFilter;
   sortBy?: CatalogSortBy;
   sortOrder?: CatalogSortOrder;
 }
@@ -285,24 +287,47 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
 
   const where: Prisma.ItemWhereInput = {};
   const and: Prisma.ItemWhereInput[] = [];
+  const facetWhere: Prisma.ItemWhereInput = {};
+  const facetAnd: Prisma.ItemWhereInput[] = [];
 
   if (query.search && query.search.trim()) {
     const term = query.search.trim();
-    and.push({
+    const searchFilter: Prisma.ItemWhereInput = {
       OR: [
         { name: { contains: term, mode: "insensitive" } },
         { sku: { contains: term, mode: "insensitive" } },
         { category: { contains: term, mode: "insensitive" } },
       ],
-    });
+    };
+    and.push(searchFilter);
+    facetAnd.push(searchFilter);
   }
 
   if (query.categories && query.categories.length > 0) {
-    and.push({ category: { in: query.categories } });
+    const validCategories = query.categories.map((entry) => entry.trim()).filter(Boolean);
+    if (validCategories.length > 0) {
+      and.push({ category: { in: validCategories } });
+    }
   }
 
   if (query.subCategoryIds && query.subCategoryIds.length > 0) {
-    and.push({ subCategoryId: { in: query.subCategoryIds } });
+    const validSubCategoryIds = query.subCategoryIds
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    if (validSubCategoryIds.length > 0) {
+      const subCategoryFilter: Prisma.ItemWhereInput = {
+        subCategoryId: { in: validSubCategoryIds },
+      };
+      and.push(subCategoryFilter);
+      facetAnd.push(subCategoryFilter);
+    }
+  }
+
+  if (query.productTypes && query.productTypes.length > 0) {
+    const validProductTypes = query.productTypes.map((entry) => entry.trim()).filter(Boolean);
+    if (validProductTypes.length > 0) {
+      and.push({ productType: { in: validProductTypes } });
+    }
   }
 
   if (query.minPrice !== undefined || query.maxPrice !== undefined) {
@@ -314,18 +339,23 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
     });
   }
 
-  if (query.inStockOnly) {
+  if (query.stock === "in") {
     and.push({ quantity: { gt: 0 } });
+  } else if (query.stock === "out") {
+    and.push({ quantity: { lte: 0 } });
   }
 
   if (and.length > 0) {
     where.AND = and;
   }
+  if (facetAnd.length > 0) {
+    facetWhere.AND = facetAnd;
+  }
 
   const sortBy = query.sortBy || "createdAt";
   const sortOrder = query.sortOrder || "desc";
 
-  const [items, activeDiscounts] = await Promise.all([
+  const [items, facetItems, activeDiscounts] = await Promise.all([
     prisma.item.findMany({
       where,
       include: {
@@ -337,6 +367,17 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
         },
       },
       orderBy: { [sortBy]: sortOrder },
+    }),
+    prisma.item.findMany({
+      where: facetWhere,
+      select: {
+        id: true,
+        category: true,
+        productType: true,
+        price: true,
+        quantity: true,
+        showOnMainSite: true,
+      },
     }),
     prisma.discount.findMany({
       where: { isActive: true },
@@ -350,6 +391,35 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
   const visibleItems = items.filter(isVisibleOnMainSite);
   const totalItems = visibleItems.length;
   const paginatedItems = visibleItems.slice((page - 1) * limit, page * limit);
+  const visibleFacetItems = facetItems.filter(isVisibleOnMainSite);
+
+  const categoriesMap = new Map<string, number>();
+  const productTypesMap = new Map<string, number>();
+  let inStockCount = 0;
+  let outOfStockCount = 0;
+  let minPriceBound = Number.POSITIVE_INFINITY;
+  let maxPriceBound = 0;
+
+  for (const item of visibleFacetItems) {
+    const categoryName = item.category?.trim();
+    if (categoryName) {
+      categoriesMap.set(categoryName, (categoriesMap.get(categoryName) || 0) + 1);
+    }
+
+    const productTypeName = item.productType?.trim();
+    if (productTypeName) {
+      productTypesMap.set(productTypeName, (productTypesMap.get(productTypeName) || 0) + 1);
+    }
+
+    if (item.quantity > 0) {
+      inStockCount += 1;
+    } else {
+      outOfStockCount += 1;
+    }
+
+    minPriceBound = Math.min(minPriceBound, item.price);
+    maxPriceBound = Math.max(maxPriceBound, item.price);
+  }
 
   const data = paginatedItems.map((item) => {
     const pricing = applyListingDiscounts(
@@ -397,6 +467,22 @@ export const getCatalogItems = async (query: CatalogQueryInput) => {
       totalPages,
       hasNextPage: page < totalPages,
       hasPrevPage: page > 1,
+      facets: {
+        categories: Array.from(categoriesMap.entries())
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+        productTypes: Array.from(productTypesMap.entries())
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+        stock: {
+          inStock: inStockCount,
+          outOfStock: outOfStockCount,
+        },
+        price: {
+          min: Number.isFinite(minPriceBound) ? round2(minPriceBound) : 0,
+          max: Number.isFinite(minPriceBound) ? round2(maxPriceBound) : 0,
+        },
+      },
     },
   };
 };

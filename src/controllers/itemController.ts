@@ -232,9 +232,16 @@ export const getCatalogItems = async (
     const limit = toNumber(getQueryString(req.query.limit));
     const minPrice = toNumber(getQueryString(req.query.minPrice));
     const maxPrice = toNumber(getQueryString(req.query.maxPrice));
-    const inStockRaw = getQueryString(req.query.inStockOnly);
-    const inStockOnly =
-      inStockRaw !== undefined ? inStockRaw.toLowerCase() === "true" : undefined;
+
+    const stockRaw = getQueryString(req.query.stock)?.toLowerCase();
+    const legacyInStockRaw = getQueryString(req.query.inStockOnly);
+
+    let stock: "all" | "in" | "out" | undefined;
+    if (stockRaw === "all" || stockRaw === "in" || stockRaw === "out") {
+      stock = stockRaw;
+    } else if (legacyInStockRaw !== undefined) {
+      stock = legacyInStockRaw.toLowerCase() === "true" ? "in" : "all";
+    }
 
     const sortByRaw = getQueryString(req.query.sortBy);
     const sortOrderRaw = getQueryString(req.query.sortOrder);
@@ -254,9 +261,10 @@ export const getCatalogItems = async (
       search: getQueryString(req.query.search),
       categories: getStringList(req.query.category),
       subCategoryIds: getStringList(req.query.subCategoryId),
+      productTypes: getStringList(req.query.productType),
       minPrice,
       maxPrice,
-      inStockOnly,
+      stock,
       sortBy,
       sortOrder,
     });
