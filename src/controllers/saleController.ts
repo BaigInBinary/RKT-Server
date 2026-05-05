@@ -256,15 +256,25 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
           const bookingResponse = await bookLeopardsShipment({
             orderId: existingOrder.id,
             customerName: existingOrder.customerName,
+            customerEmail: existingOrder.customerEmail || undefined,
             customerPhone: existingOrder.customerPhone,
             customerAddress: existingOrder.shippingAddress,
             city: existingOrder.city,
             amount: existingOrder.total,
             weight
           });
+          const leopardsOrderId =
+            (typeof bookingResponse?.booking_order_id === "string" && bookingResponse.booking_order_id.trim()) ||
+            (typeof bookingResponse?.booked_packet_order_id === "string" && bookingResponse.booked_packet_order_id.trim()) ||
+            (typeof bookingResponse?.order_id === "string" && bookingResponse.order_id.trim()) ||
+            existingOrder.id;
           
-          if (!bookingResponse || !bookingResponse.track_number) {
-            return res.status(400).json({ message: "Leopards API failed to return a tracking number. Check configuration." });
+          if (!bookingResponse || bookingResponse.status !== 1 || !bookingResponse.track_number) {
+            const bookingError =
+              (typeof bookingResponse?.error === "string" && bookingResponse.error.trim()) ||
+              (typeof bookingResponse?.message === "string" && bookingResponse.message.trim()) ||
+              "Leopards API failed to return a tracking number. Check configuration.";
+            return res.status(400).json({ message: bookingError });
           }
 
           // Directly assign it via updateSaleTracking without waiting for generic update below
@@ -272,7 +282,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
             existingOrder.id, 
             bookingResponse.track_number, 
             "Booked",
-            bookingResponse.order_id 
+            leopardsOrderId
           );
 
           if ((existingOrder.paymentMethod ?? "").trim().toUpperCase() === "BANK_DEPOSIT") {
@@ -288,6 +298,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
               await sendOrderBookedEmail({
                 order: updated,
                 trackingNumber: bookingResponse.track_number,
+                leopardsOrderId,
               });
             } catch (mailError: any) {
               console.error(

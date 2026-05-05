@@ -3,10 +3,69 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+const normalizeLeopardsApiBaseUrl = (value?: string): string => {
+    const fallback = "https://merchantapi.leopardscourier.com/api/";
+    const trimmed = (value || fallback).trim();
+    if (!trimmed) {
+        return fallback;
+    }
+
+    const noTrailingSlash = trimmed.replace(/\/+$/, "");
+    const withApi = /\/api$/i.test(noTrailingSlash) ? noTrailingSlash : `${noTrailingSlash}/api`;
+    return `${withApi}/`;
+};
+
+const stringifyLeopardsError = (value: unknown): string => {
+    if (value === null || value === undefined) {
+        return "";
+    }
+    if (typeof value === "string") {
+        return value.trim();
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+    }
+    if (Array.isArray(value)) {
+        return value
+            .map((entry) => stringifyLeopardsError(entry))
+            .filter(Boolean)
+            .join(" | ");
+    }
+    if (typeof value === "object") {
+        const entries = Object.entries(value as Record<string, unknown>);
+        return entries
+            .map(([key, entry]) => {
+                const msg = stringifyLeopardsError(entry);
+                return msg ? `${key}: ${msg}` : key;
+            })
+            .filter(Boolean)
+            .join(" | ");
+    }
+    return "";
+};
+
+const resolveShipmentTypeName = (value?: string): string => {
+    const normalized = (value || "").trim().toLowerCase();
+    if (!normalized) {
+        return "overnight";
+    }
+
+    const map: Record<string, string> = {
+        "1": "overnight",
+        "2": "overland",
+        "3": "detain",
+        overnight: "overnight",
+        overland: "overland",
+        detain: "detain",
+    };
+
+    return map[normalized] || normalized;
+};
+
 // Initial defaults from .env
 let LEOPARDS_API_KEY = process.env.LEOPARDS_API_KEY || "";
 let LEOPARDS_API_PASSWORD = process.env.LEOPARDS_API_PASSWORD || "";
-let LEOPARDS_API_URL = process.env.LEOPARDS_API_URL || "https://merchantapistaging.leopardscourier.com/api/";
+let LEOPARDS_API_URL = normalizeLeopardsApiBaseUrl(process.env.LEOPARDS_API_URL);
 
 // Helper to get latest config from DB
 const fetchLeopardsConfig = async () => {
@@ -15,7 +74,7 @@ const fetchLeopardsConfig = async () => {
         if (config) {
             LEOPARDS_API_KEY = config.apiKey;
             LEOPARDS_API_PASSWORD = config.apiPassword;
-            LEOPARDS_API_URL = config.baseUrl;
+            LEOPARDS_API_URL = normalizeLeopardsApiBaseUrl(config.baseUrl);
             return config;
         }
     } catch (err) {
@@ -26,7 +85,13 @@ const fetchLeopardsConfig = async () => {
 
 // In-memory cache for cities
 interface CacheStore {
-    cities: any[];
+    cities: Array<{
+        id: string;
+        name: string;
+        allowAsOrigin?: boolean;
+        allowAsDestination?: boolean;
+        shipmentTypes?: string[];
+    }>;
     timestamp: number;
 }
 
@@ -38,16 +103,16 @@ const cache: CacheStore = {
 const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
 
 const MOCK_CITIES = [
-    { id: "1", name: "Karachi" }, 
-    { id: "2", name: "Lahore" }, 
-    { id: "3", name: "Islamabad" },
-    { id: "4", name: "Faisalabad" },
-    { id: "5", name: "Rawalpindi" },
-    { id: "6", name: "Multan" },
-    { id: "7", name: "Peshawar" },
-    { id: "8", name: "Quetta" },
-    { id: "9", name: "Sialkot" },
-    { id: "10", name: "Gujranwala" }
+    { id: "1", name: "Karachi", allowAsOrigin: true, allowAsDestination: true, shipmentTypes: ["OVERNIGHT", "DETAIN", "OVERLAND"] }, 
+    { id: "2", name: "Lahore", allowAsOrigin: true, allowAsDestination: true, shipmentTypes: ["OVERNIGHT", "DETAIN", "OVERLAND"] }, 
+    { id: "3", name: "Islamabad", allowAsOrigin: true, allowAsDestination: true, shipmentTypes: ["OVERNIGHT", "DETAIN", "OVERLAND"] },
+    { id: "4", name: "Faisalabad", allowAsOrigin: true, allowAsDestination: true, shipmentTypes: ["OVERNIGHT", "DETAIN", "OVERLAND"] },
+    { id: "5", name: "Rawalpindi", allowAsOrigin: true, allowAsDestination: true, shipmentTypes: ["OVERNIGHT", "DETAIN", "OVERLAND"] },
+    { id: "6", name: "Multan", allowAsOrigin: true, allowAsDestination: true, shipmentTypes: ["OVERNIGHT", "DETAIN", "OVERLAND"] },
+    { id: "7", name: "Peshawar", allowAsOrigin: true, allowAsDestination: true, shipmentTypes: ["OVERNIGHT", "DETAIN", "OVERLAND"] },
+    { id: "8", name: "Quetta", allowAsOrigin: true, allowAsDestination: true, shipmentTypes: ["OVERNIGHT", "DETAIN", "OVERLAND"] },
+    { id: "9", name: "Sialkot", allowAsOrigin: true, allowAsDestination: true, shipmentTypes: ["OVERNIGHT", "DETAIN", "OVERLAND"] },
+    { id: "10", name: "Gujranwala", allowAsOrigin: true, allowAsDestination: true, shipmentTypes: ["OVERNIGHT", "DETAIN", "OVERLAND"] }
 ];
 
 export interface LeopardsBookingData {
@@ -55,6 +120,7 @@ export interface LeopardsBookingData {
     customerName: string;
     customerPhone: string;
     customerAddress: string;
+    customerEmail?: string;
     city: string | number; // Support both name and ID
     amount: number;
     weight: number; // Weight in grams
@@ -93,7 +159,24 @@ export const getAllLeopardsCities = async (): Promise<any[]> => {
             // Map Leopards API keys (city_id, city_name) to standard keys (id, name)
             cache.cities = response.data.city_list.map((c: any) => ({
                 id: String(c.city_id || c.id),
-                name: c.city_name || c.name
+                name: c.city_name || c.name,
+                allowAsOrigin:
+                    typeof c.allow_as_origin === "boolean"
+                        ? c.allow_as_origin
+                        : typeof c.allowAsOrigin === "boolean"
+                            ? c.allowAsOrigin
+                            : true,
+                allowAsDestination:
+                    typeof c.allow_as_destination === "boolean"
+                        ? c.allow_as_destination
+                        : typeof c.allowAsDestination === "boolean"
+                            ? c.allowAsDestination
+                            : true,
+                shipmentTypes: Array.isArray(c.shipment_type)
+                    ? c.shipment_type
+                    : Array.isArray(c.shipmentTypes)
+                        ? c.shipmentTypes
+                        : [],
             }));
             cache.timestamp = Date.now();
             console.log(`[LEOPARDS] Successfully cached ${cache.cities.length} cities.`);
@@ -118,6 +201,54 @@ const resolveCityToId = async (cityName: string): Promise<number | null> => {
     return city ? parseInt(String(city.id)) : null;
 };
 
+const resolveOriginCityForBooking = async (
+    preferredOriginCity?: string | null,
+): Promise<number | "self"> => {
+    const cities = await getAllLeopardsCities();
+    const normalized = (preferredOriginCity || "").trim();
+
+    const findAllowedById = (id: number) =>
+        cities.find((c: any) => Number(c.id) === id && c.allowAsOrigin !== false);
+    const findAllowedByName = (name: string) =>
+        cities.find(
+            (c: any) => c.name && c.name.toLowerCase() === name.toLowerCase() && c.allowAsOrigin !== false,
+        );
+
+    if (normalized.toLowerCase() === "self") {
+        return "self";
+    }
+
+    if (normalized) {
+        const numericId = Number(normalized);
+        if (Number.isFinite(numericId) && numericId > 0) {
+            const matchedById = findAllowedById(numericId);
+            if (matchedById) {
+                return numericId;
+            }
+            console.warn(
+                `[LEOPARDS] Configured origin city id "${normalized}" is invalid or disabled for origin. Falling back.`,
+            );
+        } else {
+            const matchedByName = findAllowedByName(normalized);
+            if (matchedByName) {
+                return Number(matchedByName.id);
+            }
+        }
+    }
+
+    const faisalabad = findAllowedByName("Faisalabad");
+    if (faisalabad) {
+        return Number(faisalabad.id);
+    }
+
+    const firstAllowedOrigin = cities.find((c: any) => c.allowAsOrigin !== false);
+    if (firstAllowedOrigin) {
+        return Number(firstAllowedOrigin.id);
+    }
+
+    return "self";
+};
+
 export const bookLeopardsShipment = async (data: LeopardsBookingData) => {
     // Refresh config from DB
     const config = await fetchLeopardsConfig();
@@ -128,6 +259,7 @@ export const bookLeopardsShipment = async (data: LeopardsBookingData) => {
         return {
             status: 1,
             track_number: `LEO-${Math.floor(Math.random() * 1000000)}`,
+            booking_order_id: data.orderId,
             message: "Shipment booked successfully (Mock)"
         };
     }
@@ -141,25 +273,69 @@ export const bookLeopardsShipment = async (data: LeopardsBookingData) => {
             cityId = 1;
         }
 
+        const originCity = await resolveOriginCityForBooking(config?.originCity);
+        const shipmentType = resolveShipmentTypeName(data.shipmentType || config?.shipmentType);
+
         const payload = {
             api_key: LEOPARDS_API_KEY,
             api_password: LEOPARDS_API_PASSWORD,
             booked_packet_order_id: data.orderId,
-            booked_packet_collect_amount: data.amount,
-            booked_packet_weight: data.weight,
-            booked_packet_no_piece: data.pieces || 1,
-            origin_city: await resolveCityToId("Faisalabad") || 4, // Defaulting to Faisalabad (ID 4)
+            booked_packet_collect_amount: Math.max(0, Math.round(Number(data.amount) || 0)),
+            booked_packet_weight: Math.max(1, Math.round(Number(data.weight) || 1)),
+            booked_packet_no_piece: Math.max(1, Math.round(Number(data.pieces || 1))),
+            origin_city: originCity,
             destination_city: cityId,
-            shipment_type: data.shipmentType || "overnight",
+            shipment_type: shipmentType,
+            shipment_name_eng: "self",
+            shipment_email: "self",
+            shipment_phone: "self",
+            shipment_address: "self",
             consignment_name_eng: data.customerName,
+            consignment_email: data.customerEmail || "",
             consignment_phone: data.customerPhone,
             consignment_address: data.customerAddress,
+            special_instructions: `Order ${data.orderId}`,
         };
 
-        const response = await axios.post(`${LEOPARDS_API_URL}bookPacket/format/json/`, payload);
-        return response.data;
+        const response = await axios.post(`${LEOPARDS_API_URL}bookPacket/format/json/`, payload, {
+            headers: {
+                "Content-Type": "application/json",
+            },
+            timeout: 20000,
+        });
+        const apiData = response.data || {};
+        const trackNumber = apiData?.track_number ? String(apiData.track_number).trim() : "";
+        const status = Number(apiData?.status);
+        const errorMessage = stringifyLeopardsError(apiData?.error || apiData?.message);
+        const bookingOrderId =
+            String(
+                apiData?.booked_packet_order_id ??
+                apiData?.booking_order_id ??
+                apiData?.order_id ??
+                apiData?.orderId ??
+                data.orderId,
+            ).trim();
+
+        if (status === 1 && trackNumber) {
+            return {
+                ...apiData,
+                status: 1,
+                track_number: trackNumber,
+                booking_order_id: bookingOrderId,
+            };
+        }
+
+        return {
+            ...apiData,
+            status: Number.isFinite(status) ? status : 0,
+            track_number: trackNumber || null,
+            booking_order_id: bookingOrderId,
+            error: errorMessage || "Leopards booking was rejected. Please verify shipment payload and API credentials.",
+        };
     } catch (error: any) {
-        throw new Error(`Leopards Booking Failed: ${error.message}`);
+        const apiErrorMessage = stringifyLeopardsError(error?.response?.data?.error || error?.response?.data?.message);
+        const fallbackMessage = error?.message || "Unknown error";
+        throw new Error(`Leopards Booking Failed: ${apiErrorMessage || fallbackMessage}`);
     }
 };
 

@@ -305,6 +305,7 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
     const bookingData = {
       orderId: order.id,
       customerName: order.customerName || "Customer",
+      customerEmail: order.customerEmail || undefined,
       customerPhone: order.customerPhone || "",
       customerAddress: order.shippingAddress || "",
       city: order.city || "Karachi",
@@ -315,20 +316,26 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
 
     // 3. Call Leopards API
     const result = await bookLeopardsShipment(bookingData);
+    const leopardsOrderId =
+      (typeof result?.booking_order_id === "string" && result.booking_order_id.trim()) ||
+      (typeof result?.booked_packet_order_id === "string" && result.booked_packet_order_id.trim()) ||
+      (typeof result?.order_id === "string" && result.order_id.trim()) ||
+      order.id;
 
-    if (result && result.status === 1) {
+    if (result && result.status === 1 && result.track_number) {
       // 4. Update order with tracking number and new status
       const updatedOrder = await updateSaleTracking(
         order.id,
         result.track_number,
         "Booked",
-        result.track_number // Use CN as booking ID locally as well
+        leopardsOrderId
       );
 
       try {
         await sendOrderBookedEmail({
           order: updatedOrder,
           trackingNumber: result.track_number,
+          leopardsOrderId,
         });
       } catch (mailError: any) {
         console.error(

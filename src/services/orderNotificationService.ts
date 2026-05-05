@@ -4,6 +4,7 @@ import { Sale } from "@prisma/client";
 type SendOrderBookedEmailInput = {
   order: Sale;
   trackingNumber?: string | null;
+  leopardsOrderId?: string | null;
 };
 
 type MailResult = {
@@ -22,6 +23,28 @@ const SUPPORT_EMAIL = "rktradershop@gmail.com";
 
 const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, "");
 
+const resolveOrderIdForCustomerEmail = (
+  order: Sale,
+  leopardsOrderId?: string | null,
+): string => {
+  const preferred = (leopardsOrderId || "").trim();
+  if (preferred) {
+    return preferred;
+  }
+
+  const bookingId = (order.bookingId || "").trim();
+  if (bookingId) {
+    return bookingId;
+  }
+
+  const internalOrderId = (order.id || "").trim();
+  if (internalOrderId) {
+    return internalOrderId;
+  }
+
+  return (order.txnRefNo || order.id).trim();
+};
+
 const buildTrackingUrl = (order: Sale, cnNumber: string): string | null => {
   const template = process.env.ORDER_TRACKING_URL_TEMPLATE?.trim();
   if (template) {
@@ -33,7 +56,7 @@ const buildTrackingUrl = (order: Sale, cnNumber: string): string | null => {
 
   const frontBase = process.env.PUBLIC_MAIN_SITE_URL?.trim();
   if (frontBase) {
-    return `${normalizeBaseUrl(frontBase)}/track-order?id=${encodeURIComponent(cnNumber)}`;
+    return `${normalizeBaseUrl(frontBase)}/track-order?id=${encodeURIComponent(order.id)}`;
   }
 
   const apiBase = process.env.PUBLIC_API_BASE_URL?.trim();
@@ -47,10 +70,10 @@ const buildTrackingUrl = (order: Sale, cnNumber: string): string | null => {
 
 const buildOrderBookedHtml = (
   order: Sale,
+  orderIdForEmail: string,
   cnNumber: string,
   trackingUrl: string | null,
 ): string => {
-  const safeOrderId = order.txnRefNo || order.id;
   const safeCustomerName = order.customerName || "Customer";
 
   return `
@@ -63,7 +86,7 @@ const buildOrderBookedHtml = (
       <table style="border-collapse: collapse; width: 100%; max-width: 480px; margin: 0 0 16px;">
         <tr>
           <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: 600;">Order ID</td>
-          <td style="padding: 8px; border: 1px solid #e5e7eb;">${safeOrderId}</td>
+          <td style="padding: 8px; border: 1px solid #e5e7eb;">${orderIdForEmail}</td>
         </tr>
         <tr>
           <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: 600;">CN Number</td>
@@ -165,6 +188,7 @@ const getSmtpMailContext = (order: Sale, emailType: "booked" | "cancelled"): Smt
 export const sendOrderBookedEmail = async ({
   order,
   trackingNumber,
+  leopardsOrderId,
 }: SendOrderBookedEmailInput): Promise<MailResult> => {
   const toEmail = order.customerEmail?.trim();
   if (!toEmail) {
@@ -181,10 +205,11 @@ export const sendOrderBookedEmail = async ({
   }
 
   const trackingUrl = buildTrackingUrl(order, cnNumber);
-  const subject = `Order booked: ${order.txnRefNo || order.id} | CN ${cnNumber}`;
+  const orderIdForEmail = resolveOrderIdForCustomerEmail(order, leopardsOrderId);
+  const subject = `Order booked: ${orderIdForEmail} | CN ${cnNumber}`;
   const text = [
     `Your order has been booked with Leopards.`,
-    `Order ID: ${order.txnRefNo || order.id}`,
+    `Order ID: ${orderIdForEmail}`,
     `CN Number: ${cnNumber}`,
     trackingUrl ? `Track Order: ${trackingUrl}` : "",
     `Support Email: ${SUPPORT_EMAIL}`,
@@ -198,7 +223,7 @@ export const sendOrderBookedEmail = async ({
     replyTo: mailContext.replyTo,
     subject,
     text,
-    html: buildOrderBookedHtml(order, cnNumber, trackingUrl),
+    html: buildOrderBookedHtml(order, orderIdForEmail, cnNumber, trackingUrl),
     headers: {
       "X-Auto-Response-Suppress": "All",
       "X-Entity-Ref-ID": `${order.id}-${cnNumber}`,
