@@ -11,6 +11,15 @@ type MailResult = {
   reason?: string;
 };
 
+type SmtpMailContext = {
+  transporter: ReturnType<typeof nodemailer.createTransport>;
+  fromEmail: string;
+  fromName: string;
+  replyTo: string;
+};
+
+const SUPPORT_EMAIL = "rktradershop@gmail.com";
+
 const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, "");
 
 const buildTrackingUrl = (order: Sale, cnNumber: string): string | null => {
@@ -69,9 +78,88 @@ const buildOrderBookedHtml = (
             </p>`
           : ""
       }
+      <p style="margin: 0 0 16px;">
+        For any help, contact us at
+        <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.
+      </p>
       <p style="margin: 0;">Thank you for shopping with us.</p>
     </div>
   `;
+};
+
+const buildOrderCancelledHtml = (order: Sale): string => {
+  const safeCustomerName = order.customerName || "Customer";
+
+  return `
+    <div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.5; color: #111827;">
+      <h2 style="margin: 0 0 12px;">Your order has been cancelled</h2>
+      <p style="margin: 0 0 12px;">Hi ${safeCustomerName},</p>
+      <p style="margin: 0 0 16px;">
+        Your order has been marked as cancelled by our team.
+      </p>
+      <p style="margin: 0;">
+        If you need help, contact us at
+        <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.
+      </p>
+    </div>
+  `;
+};
+
+const getSmtpMailContext = (order: Sale, emailType: "booked" | "cancelled"): SmtpMailContext | null => {
+  const smtpHost = process.env.SMTP_HOST?.trim();
+  const smtpPortRaw = process.env.SMTP_PORT?.trim() || "587";
+  const smtpUser = process.env.SMTP_USER?.trim();
+  const smtpPass = process.env.SMTP_PASS?.trim();
+  const smtpSecure = (process.env.SMTP_SECURE?.trim() || "").toLowerCase() === "true";
+  const fromEmail =
+    process.env.SMTP_FROM_EMAIL?.trim() ||
+    process.env.ORDER_EMAIL_FROM?.trim();
+  const fromName = process.env.SMTP_FROM_NAME?.trim() || "RKT Store";
+  const replyTo = process.env.SMTP_REPLY_TO?.trim() || SUPPORT_EMAIL || fromEmail;
+  const smtpPort = Number(smtpPortRaw);
+
+  if (!smtpHost) {
+    console.warn(
+      `Order ${emailType} email skipped for order ${order.id}: SMTP_HOST is not configured`,
+    );
+    return null;
+  }
+
+  if (!Number.isFinite(smtpPort)) {
+    console.warn(
+      `Order ${emailType} email skipped for order ${order.id}: SMTP_PORT is invalid`,
+    );
+    return null;
+  }
+
+  if (!smtpUser || !smtpPass) {
+    console.warn(
+      `Order ${emailType} email skipped for order ${order.id}: SMTP_USER / SMTP_PASS is not configured`,
+    );
+    return null;
+  }
+
+  if (!fromEmail) {
+    console.warn(
+      `Order ${emailType} email skipped for order ${order.id}: SMTP_FROM_EMAIL is not configured`,
+    );
+    return null;
+  }
+
+  return {
+    transporter: nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure || smtpPort === 465,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    }),
+    fromEmail,
+    fromName,
+    replyTo,
+  };
 };
 
 export const sendOrderBookedEmail = async ({
@@ -87,45 +175,9 @@ export const sendOrderBookedEmail = async ({
   if (!cnNumber) {
     return { sent: false, reason: "tracking number missing" };
   }
-
-  const smtpHost = process.env.SMTP_HOST?.trim();
-  const smtpPortRaw = process.env.SMTP_PORT?.trim() || "587";
-  const smtpUser = process.env.SMTP_USER?.trim();
-  const smtpPass = process.env.SMTP_PASS?.trim();
-  const smtpSecure = (process.env.SMTP_SECURE?.trim() || "").toLowerCase() === "true";
-  const fromEmail =
-    process.env.SMTP_FROM_EMAIL?.trim() ||
-    process.env.ORDER_EMAIL_FROM?.trim();
-  const fromName = process.env.SMTP_FROM_NAME?.trim() || "RKT Store";
-  const replyTo = process.env.SMTP_REPLY_TO?.trim() || fromEmail;
-  const smtpPort = Number(smtpPortRaw);
-
-  if (!smtpHost) {
-    console.warn(
-      `Order booked email skipped for order ${order.id}: SMTP_HOST is not configured`,
-    );
-    return { sent: false, reason: "SMTP_HOST missing" };
-  }
-
-  if (!Number.isFinite(smtpPort)) {
-    console.warn(
-      `Order booked email skipped for order ${order.id}: SMTP_PORT is invalid`,
-    );
-    return { sent: false, reason: "SMTP_PORT invalid" };
-  }
-
-  if (!smtpUser || !smtpPass) {
-    console.warn(
-      `Order booked email skipped for order ${order.id}: SMTP_USER / SMTP_PASS is not configured`,
-    );
-    return { sent: false, reason: "SMTP credentials missing" };
-  }
-
-  if (!fromEmail) {
-    console.warn(
-      `Order booked email skipped for order ${order.id}: SMTP_FROM_EMAIL is not configured`,
-    );
-    return { sent: false, reason: "SMTP_FROM_EMAIL missing" };
+  const mailContext = getSmtpMailContext(order, "booked");
+  if (!mailContext) {
+    return { sent: false, reason: "SMTP config missing" };
   }
 
   const trackingUrl = buildTrackingUrl(order, cnNumber);
@@ -135,30 +187,58 @@ export const sendOrderBookedEmail = async ({
     `Order ID: ${order.txnRefNo || order.id}`,
     `CN Number: ${cnNumber}`,
     trackingUrl ? `Track Order: ${trackingUrl}` : "",
+    `Support Email: ${SUPPORT_EMAIL}`,
   ]
     .filter(Boolean)
     .join("\n");
 
-  const transporter = nodemailer.createTransport({
-    host: smtpHost,
-    port: smtpPort,
-    secure: smtpSecure || smtpPort === 465,
-    auth: {
-      user: smtpUser,
-      pass: smtpPass,
-    },
-  });
-
-  await transporter.sendMail({
-    from: `"${fromName}" <${fromEmail}>`,
+  await mailContext.transporter.sendMail({
+    from: `"${mailContext.fromName}" <${mailContext.fromEmail}>`,
     to: toEmail,
-    replyTo,
+    replyTo: mailContext.replyTo,
     subject,
     text,
     html: buildOrderBookedHtml(order, cnNumber, trackingUrl),
     headers: {
       "X-Auto-Response-Suppress": "All",
       "X-Entity-Ref-ID": `${order.id}-${cnNumber}`,
+    },
+  });
+
+  return { sent: true };
+};
+
+export const sendOrderCancelledEmail = async ({
+  order,
+}: {
+  order: Sale;
+}): Promise<MailResult> => {
+  const toEmail = order.customerEmail?.trim();
+  if (!toEmail) {
+    return { sent: false, reason: "customer email missing" };
+  }
+
+  const mailContext = getSmtpMailContext(order, "cancelled");
+  if (!mailContext) {
+    return { sent: false, reason: "SMTP config missing" };
+  }
+
+  const subject = "Order cancelled";
+  const text = [
+    "Your order has been cancelled.",
+    `For support, email us at: ${SUPPORT_EMAIL}`,
+  ].join("\n");
+
+  await mailContext.transporter.sendMail({
+    from: `"${mailContext.fromName}" <${mailContext.fromEmail}>`,
+    to: toEmail,
+    replyTo: mailContext.replyTo,
+    subject,
+    text,
+    html: buildOrderCancelledHtml(order),
+    headers: {
+      "X-Auto-Response-Suppress": "All",
+      "X-Entity-Ref-ID": `${order.id}-cancelled`,
     },
   });
 

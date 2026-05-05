@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as saleService from '../services/saleService';
-import { sendOrderBookedEmail } from "../services/orderNotificationService";
+import { sendOrderBookedEmail, sendOrderCancelledEmail } from "../services/orderNotificationService";
 import { uploadImageBuffer } from "../config/cloudinary";
 
 const isFiniteNumber = (value: unknown): value is number =>
@@ -233,12 +233,17 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     }
 
     const shouldAttemptBookedNotification = courierStatus === "Booked";
-    let existingOrderBeforeBookedUpdate: Awaited<ReturnType<typeof saleService.getSaleById>> | null = null;
+    const shouldAttemptCancelledNotification = courierStatus === "Cancelled";
+    let existingOrderBeforeStatusUpdate: Awaited<ReturnType<typeof saleService.getSaleById>> | null = null;
 
-    if (courierStatus === "Booked") {
+    if (shouldAttemptBookedNotification || shouldAttemptCancelledNotification) {
       const existingOrder = await saleService.getSaleById(orderId);
       if (!existingOrder) return res.status(404).json({ message: "Order not found" });
-      existingOrderBeforeBookedUpdate = existingOrder;
+      existingOrderBeforeStatusUpdate = existingOrder;
+    }
+
+    if (courierStatus === "Booked" && existingOrderBeforeStatusUpdate) {
+      const existingOrder = existingOrderBeforeStatusUpdate;
 
       if (!existingOrder.trackingNumber) {
         if (!existingOrder.customerName || !existingOrder.customerPhone || !existingOrder.shippingAddress || !existingOrder.city) {
@@ -304,7 +309,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
       shouldAttemptBookedNotification &&
       order &&
       order.trackingNumber &&
-      (existingOrderBeforeBookedUpdate?.courierStatus ?? "").trim().toLowerCase() !== "booked"
+      (existingOrderBeforeStatusUpdate?.courierStatus ?? "").trim().toLowerCase() !== "booked"
     ) {
       try {
         await sendOrderBookedEmail({
@@ -318,6 +323,22 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
         );
       }
     }
+
+    if (
+      shouldAttemptCancelledNotification &&
+      order &&
+      !["cancelled", "canceled"].includes((existingOrderBeforeStatusUpdate?.courierStatus ?? "").trim().toLowerCase())
+    ) {
+      try {
+        await sendOrderCancelledEmail({ order });
+      } catch (mailError: any) {
+        console.error(
+          `Cancelled notification email failed for order ${order.id}:`,
+          mailError?.message || mailError,
+        );
+      }
+    }
+
     res.status(200).json(order);
   } catch (error) {
     next(error);
