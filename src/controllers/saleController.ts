@@ -24,9 +24,28 @@ const validateSaleItems = (items: unknown): string | null => {
     const item = entry as Record<string, unknown>;
     const itemId = typeof item.itemId === "string" ? item.itemId.trim() : "";
     const name = typeof item.name === "string" ? item.name.trim() : "";
+    const variantId =
+      item.variantId === undefined || item.variantId === null
+        ? ""
+        : typeof item.variantId === "string"
+          ? item.variantId.trim()
+          : null;
+    const variantLabel =
+      item.variantLabel === undefined || item.variantLabel === null
+        ? ""
+        : typeof item.variantLabel === "string"
+          ? item.variantLabel.trim()
+          : null;
 
     if (!itemId) {
       return `items[${index}].itemId is required.`;
+    }
+
+    if (variantId === null) {
+      return `items[${index}].variantId must be a string when provided.`;
+    }
+    if (variantLabel === null) {
+      return `items[${index}].variantLabel must be a string when provided.`;
     }
 
     if (!name) {

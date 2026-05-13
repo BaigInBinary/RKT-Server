@@ -331,6 +331,8 @@ model SitePageContent {
 
 type SaleItem {
   itemId   String
+  variantId String?
+  variantLabel String?
   name     String
   price    Float
   quantity Int

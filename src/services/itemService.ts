@@ -797,6 +797,7 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
       soldCount: true,
       quantity: true,
       subCategoryId: true,
+      variants: true,
       showOnMainSite: true,
       isFreeDelivery: true,
     },
@@ -837,6 +838,7 @@ export const getTopSellingItems = async (query: TopSellingQueryInput) => {
           pricing,
           isFreeDelivery: item.isFreeDelivery === true,
           quantity: item.quantity,
+          variants: item.variants || null,
           soldLastHours: entry.sold,
           totalSold: item.soldCount,
         };
@@ -886,6 +888,7 @@ export const getNewArrivals = async () => {
       pricing,
       isFreeDelivery: item.isFreeDelivery === true,
       quantity: item.quantity,
+      variants: item.variants || null,
       inStock: item.quantity > 0,
       createdAt: item.createdAt,
     };

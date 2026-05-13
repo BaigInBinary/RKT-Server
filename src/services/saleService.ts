@@ -3,6 +3,8 @@ import { Prisma, Sale } from "@prisma/client";
 
 export interface SaleItemInput {
   itemId: string;
+  variantId?: string;
+  variantLabel?: string;
   name: string;
   price: number;
   quantity: number;
@@ -74,6 +76,8 @@ export interface OrderAnalytics {
 }
 
 type ItemQuantityDelta = Map<string, number>;
+type VariantQuantityDelta = Map<string, number>;
+type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 const MAX_TXN_REF_RETRIES = 5;
 const MAX_TRANSACTION_RETRIES = 3;
 const RESTOCK_COURIER_STATUSES = new Set(["returned", "cancelled", "canceled"]);
@@ -136,6 +140,101 @@ const buildQuantityMap = (items: SaleItemInput[]): ItemQuantityDelta => {
     map.set(item.itemId, (map.get(item.itemId) || 0) + item.quantity);
   }
   return map;
+};
+
+const toVariantKey = (itemId: string, variantId?: string): string | null => {
+  const normalizedItemId = String(itemId || "").trim();
+  const normalizedVariantId = String(variantId || "").trim();
+  if (!normalizedItemId || !normalizedVariantId) {
+    return null;
+  }
+  return `${normalizedItemId}::${normalizedVariantId}`;
+};
+
+const parseVariantKey = (key: string): { itemId: string; variantId: string } | null => {
+  const delimiterIndex = key.indexOf("::");
+  if (delimiterIndex <= 0) {
+    return null;
+  }
+  const itemId = key.slice(0, delimiterIndex).trim();
+  const variantId = key.slice(delimiterIndex + 2).trim();
+  if (!itemId || !variantId) {
+    return null;
+  }
+  return { itemId, variantId };
+};
+
+const buildVariantQuantityMap = (items: SaleItemInput[]): VariantQuantityDelta => {
+  const map: VariantQuantityDelta = new Map();
+  for (const item of items) {
+    const variantKey = toVariantKey(item.itemId, item.variantId);
+    if (!variantKey) {
+      continue;
+    }
+    map.set(variantKey, (map.get(variantKey) || 0) + item.quantity);
+  }
+  return map;
+};
+
+const applyVariantQuantityDeltas = async (
+  tx: TransactionClient,
+  deltas: VariantQuantityDelta,
+) => {
+  for (const [variantKey, delta] of deltas.entries()) {
+    if (delta === 0) {
+      continue;
+    }
+
+    const parsed = parseVariantKey(variantKey);
+    if (!parsed) {
+      continue;
+    }
+
+    const item = await tx.item.findUnique({
+      where: { id: parsed.itemId },
+      select: {
+        variants: true,
+      },
+    });
+
+    if (!item || !Array.isArray(item.variants) || item.variants.length === 0) {
+      continue;
+    }
+
+    let didUpdate = false;
+    const nextVariants = item.variants.map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return entry;
+      }
+
+      const row = entry as Record<string, unknown>;
+      const rowId = typeof row.id === "string" ? row.id.trim() : "";
+      if (rowId !== parsed.variantId) {
+        return entry;
+      }
+
+      const existingQty =
+        Number.isFinite(Number(row.quantity)) ? Number(row.quantity) : 0;
+      const nextQty = Math.max(0, Math.floor(existingQty + delta));
+      didUpdate = true;
+
+      return {
+        ...row,
+        quantity: nextQty,
+      };
+    });
+
+    if (!didUpdate) {
+      continue;
+    }
+
+    await tx.item.update({
+      where: { id: parsed.itemId },
+      data: {
+        variants: nextVariants as Prisma.InputJsonValue,
+      },
+    });
+  }
 };
 
 const mergeDeltaMaps = (base: ItemQuantityDelta, delta: ItemQuantityDelta) => {
@@ -343,6 +442,10 @@ export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
   return await runTransactionWithRetry(async (tx) => {
     const saleDate = data.date || new Date();
     const quantityMap = buildQuantityMap(data.items);
+    const variantDeltas = new Map<string, number>();
+    for (const [key, quantity] of buildVariantQuantityMap(data.items).entries()) {
+      variantDeltas.set(key, -quantity);
+    }
     let txnRefNo = normalizeTxnRefNo(data.txnRefNo) ?? generateTxnRefNo();
     let sale: Sale | null = null;
 
@@ -400,6 +503,10 @@ export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
       });
     }
 
+    if (variantDeltas.size > 0) {
+      await applyVariantQuantityDeltas(tx, variantDeltas);
+    }
+
     await applyHourlyAndSoldCountDeltas(tx, saleDate, quantityMap);
 
     return sale;
@@ -422,6 +529,8 @@ export const updateSale = async (
 
     const previousByItemId = new Map<string, number>();
     const nextByItemId = new Map<string, number>();
+    const previousByVariant = buildVariantQuantityMap(previousItems);
+    const nextByVariant = buildVariantQuantityMap(data.items);
 
     for (const item of previousItems) {
       previousByItemId.set(item.itemId, (previousByItemId.get(item.itemId) || 0) + item.quantity);
@@ -464,6 +573,22 @@ export const updateSale = async (
       });
     }
 
+    const variantAdjustments = new Map<string, number>();
+    const allVariantKeys = new Set<string>([
+      ...Array.from(previousByVariant.keys()),
+      ...Array.from(nextByVariant.keys()),
+    ]);
+
+    for (const variantKey of allVariantKeys) {
+      const previousQty = previousByVariant.get(variantKey) || 0;
+      const nextQty = nextByVariant.get(variantKey) || 0;
+      const delta = nextQty - previousQty;
+      if (delta === 0) {
+        continue;
+      }
+      variantAdjustments.set(variantKey, -delta);
+    }
+
     const oldBucketDelta = new Map<string, number>();
     for (const [itemId, qty] of previousByItemId.entries()) {
       oldBucketDelta.set(itemId, -qty);
@@ -482,6 +607,10 @@ export const updateSale = async (
     } else {
       await applyHourlyAndSoldCountDeltas(tx, existingSale.date, oldBucketDelta);
       await applyHourlyAndSoldCountDeltas(tx, nextSaleDate, newBucketDelta);
+    }
+
+    if (variantAdjustments.size > 0) {
+      await applyVariantQuantityDeltas(tx, variantAdjustments);
     }
 
     return await tx.sale.update({
@@ -530,11 +659,16 @@ export const deleteSale = async (id: string): Promise<void> => {
       const existingItemIds = new Set(existingItems.map((item) => item.id));
 
       const soldDelta = new Map<string, number>();
+      const variantDeltas = new Map<string, number>();
       for (const item of previousItems) {
         if (!existingItemIds.has(item.itemId)) {
           continue;
         }
         soldDelta.set(item.itemId, (soldDelta.get(item.itemId) || 0) - item.quantity);
+        const variantKey = toVariantKey(item.itemId, item.variantId);
+        if (variantKey) {
+          variantDeltas.set(variantKey, (variantDeltas.get(variantKey) || 0) + item.quantity);
+        }
         await tx.item.update({
           where: { id: item.itemId },
           data: {
@@ -547,6 +681,9 @@ export const deleteSale = async (id: string): Promise<void> => {
 
       if (soldDelta.size > 0) {
         await applyHourlyAndSoldCountDeltas(tx, existingSale.date, soldDelta);
+      }
+      if (variantDeltas.size > 0) {
+        await applyVariantQuantityDeltas(tx, variantDeltas);
       }
     }
 
@@ -631,11 +768,16 @@ export const updateOrderStatus = async (
       const existingItemIds = new Set(existingItems.map((item) => item.id));
 
       const soldDelta = new Map<string, number>();
+      const variantDeltas = new Map<string, number>();
       for (const item of previousItems) {
         if (!existingItemIds.has(item.itemId)) {
           continue;
         }
         soldDelta.set(item.itemId, (soldDelta.get(item.itemId) || 0) - item.quantity);
+        const variantKey = toVariantKey(item.itemId, item.variantId);
+        if (variantKey) {
+          variantDeltas.set(variantKey, (variantDeltas.get(variantKey) || 0) + item.quantity);
+        }
         await tx.item.update({
           where: { id: item.itemId },
           data: {
@@ -648,6 +790,9 @@ export const updateOrderStatus = async (
 
       if (soldDelta.size > 0) {
         await applyHourlyAndSoldCountDeltas(tx, existingOrder.date, soldDelta);
+      }
+      if (variantDeltas.size > 0) {
+        await applyVariantQuantityDeltas(tx, variantDeltas);
       }
     }
 
