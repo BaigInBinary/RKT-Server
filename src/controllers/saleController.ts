@@ -5,6 +5,7 @@ import { uploadImageBuffer } from "../config/cloudinary";
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const validateSaleItems = (items: unknown): string | null => {
   if (!Array.isArray(items)) {
@@ -36,6 +37,12 @@ const validateSaleItems = (items: unknown): string | null => {
         : typeof item.variantLabel === "string"
           ? item.variantLabel.trim()
           : null;
+    const image =
+      item.image === undefined || item.image === null
+        ? ""
+        : typeof item.image === "string"
+          ? item.image.trim()
+          : null;
 
     if (!itemId) {
       return `items[${index}].itemId is required.`;
@@ -46,6 +53,9 @@ const validateSaleItems = (items: unknown): string | null => {
     }
     if (variantLabel === null) {
       return `items[${index}].variantLabel must be a string when provided.`;
+    }
+    if (image === null) {
+      return `items[${index}].image must be a string when provided.`;
     }
 
     if (!name) {
@@ -88,6 +98,30 @@ const validateSalePayload = (payload: unknown): string | null => {
 
   const paymentMethod =
     typeof body.paymentMethod === "string" ? body.paymentMethod.trim().toUpperCase() : "";
+  const shippingAddress =
+    typeof body.shippingAddress === "string" ? body.shippingAddress.trim() : "";
+  const city = typeof body.city === "string" ? body.city.trim() : "";
+  const customerEmail =
+    typeof body.customerEmail === "string" ? body.customerEmail.trim() : "";
+  const customerPhone =
+    typeof body.customerPhone === "string" ? body.customerPhone.trim() : "";
+
+  const isOnlineOrder =
+    paymentMethod === "COD" ||
+    paymentMethod === "PREPAID" ||
+    paymentMethod === "BANK_DEPOSIT" ||
+    !!shippingAddress ||
+    !!city;
+
+  if (isOnlineOrder) {
+    if (!customerEmail || !EMAIL_PATTERN.test(customerEmail)) {
+      return "`customerEmail` is required and must be a valid email address.";
+    }
+    if (!customerPhone || customerPhone.replace(/\D/g, "").length < 10) {
+      return "`customerPhone` is required and must contain at least 10 digits.";
+    }
+  }
+
   if (paymentMethod === "BANK_DEPOSIT") {
     const bankReceiptUrl =
       typeof body.bankReceiptUrl === "string" ? body.bankReceiptUrl.trim() : "";

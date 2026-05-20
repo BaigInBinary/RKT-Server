@@ -5,6 +5,7 @@ export interface SaleItemInput {
   itemId: string;
   variantId?: string;
   variantLabel?: string;
+  image?: string;
   name: string;
   price: number;
   quantity: number;
@@ -80,13 +81,15 @@ type VariantQuantityDelta = Map<string, number>;
 type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 const MAX_TXN_REF_RETRIES = 5;
 const MAX_TRANSACTION_RETRIES = 3;
+const TRANSACTION_MAX_WAIT_MS = 10_000;
+const TRANSACTION_TIMEOUT_MS = 20_000;
 const RESTOCK_COURIER_STATUSES = new Set(["returned", "cancelled", "canceled"]);
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isTransientTransactionError = (error: unknown): boolean => {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    return error.code === "P2034";
+    return error.code === "P2034" || error.code === "P2028";
   }
 
   if (!(error instanceof Error)) {
@@ -96,6 +99,8 @@ const isTransientTransactionError = (error: unknown): boolean => {
   const message = `${error.name}: ${error.message} ${(error as { meta?: unknown }).meta ? JSON.stringify((error as { meta?: unknown }).meta) : ""}`.toLowerCase();
   return (
     message.includes("transienttransactionerror") ||
+    message.includes("transaction already closed") ||
+    message.includes("expired transaction") ||
     message.includes("os error 10054") ||
     message.includes("forcibly closed by the remote host") ||
     message.includes("connection was closed") ||
@@ -112,7 +117,13 @@ const runTransactionWithRetry = async <T>(
 
   for (let attempt = 1; attempt <= MAX_TRANSACTION_RETRIES; attempt += 1) {
     try {
-      return await prisma.$transaction(async (tx) => operation(tx));
+      return await prisma.$transaction(
+        async (tx) => operation(tx),
+        {
+          maxWait: TRANSACTION_MAX_WAIT_MS,
+          timeout: TRANSACTION_TIMEOUT_MS,
+        },
+      );
     } catch (error) {
       lastError = error;
       if (!isTransientTransactionError(error) || attempt === MAX_TRANSACTION_RETRIES) {

@@ -333,6 +333,7 @@ type SaleItem {
   itemId   String
   variantId String?
   variantLabel String?
+  image    String?
   name     String
   price    Float
   quantity Int
