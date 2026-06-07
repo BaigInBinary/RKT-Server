@@ -63,6 +63,25 @@ export const errorHandler = (
     });
   }
 
+  const errorName = (err as { name?: string }).name;
+  const errorType = (err as { type?: string }).type;
+  const errorMessage = (err.message || "").toLowerCase();
+
+  if (
+    errorName === "PayloadTooLargeError" ||
+    errorType === "entity.too.large" ||
+    errorMessage.includes("request entity too large") ||
+    errorMessage.includes("payload too large") ||
+    errorMessage.includes("bsonobj size") ||
+    errorMessage.includes("bson size")
+  ) {
+    return res.status(413).json({
+      success: false,
+      message:
+        "This item is too large to save as one record. Please reduce the number of variants or split the product into smaller items.",
+    });
+  }
+
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
       return res.status(413).json({
