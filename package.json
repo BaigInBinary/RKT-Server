@@ -12,7 +12,8 @@
     "test": "jest --runInBand",
     "test:watch": "jest --watch --runInBand",
     "test:coverage": "jest --coverage --runInBand",
-    "vercel-build": "rm -rf dist .python_packages && prisma generate && tsc -p tsconfig.json --noCheck && (python3 -m pip install -r requirements.txt -t ./.python_packages || python -m pip install -r requirements.txt -t ./.python_packages)"
+    "vercel-build": "rm -rf dist .python_packages && prisma generate && tsc -p tsconfig.json --noCheck && (python3 -m pip install -r requirements.txt -t ./.python_packages || python -m pip install -r requirements.txt -t ./.python_packages)",
+    "migrate:cloudinary-to-r2": "node --import tsx src/scripts/migrateCloudinaryToR2.ts"
   },
   "keywords": [],
   "author": "",
@@ -21,7 +22,6 @@
     "@prisma/client": "^5.8.0",
     "@types/nodemailer": "^8.0.0",
     "axios": "^1.14.0",
-    "cloudinary": "^2.9.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",

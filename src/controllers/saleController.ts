@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as saleService from '../services/saleService';
 import { sendOrderBookedEmail, sendOrderCancelledEmail } from "../services/orderNotificationService";
-import { uploadImageBuffer } from "../config/cloudinary";
+import { uploadImageBuffer } from "../config/r2";
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
@@ -232,7 +232,12 @@ export const uploadSaleReceipt = async (req: Request, res: Response, next: NextF
       return res.status(400).json({ message: "Receipt image is required" });
     }
 
-    const uploadedImage = await uploadImageBuffer(req.file.buffer, "bank-receipts");
+    const uploadedImage = await uploadImageBuffer(
+      req.file.buffer,
+      "bank-receipts",
+      req.file.originalname,
+      req.file.mimetype,
+    );
     return res.status(200).json({
       receiptUrl: uploadedImage.secure_url,
       publicId: uploadedImage.public_id,

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as itemService from '../services/itemService';
-import { uploadImageBuffer } from "../config/cloudinary";
+import { uploadImageBuffer } from "../config/r2";
 
 const toNumber = (value: unknown): number | undefined => {
   if (value === undefined || value === null || value === "") {
@@ -397,7 +397,12 @@ export const uploadItemImage = async (req: Request, res: Response, next: NextFun
       return res.status(400).json({ message: "Image file is required" });
     }
 
-    const uploadedImage = await uploadImageBuffer(req.file.buffer, "items");
+    const uploadedImage = await uploadImageBuffer(
+      req.file.buffer,
+      "items",
+      req.file.originalname,
+      req.file.mimetype,
+    );
     res.status(200).json({
       imageUrl: uploadedImage.secure_url,
       publicId: uploadedImage.public_id,
