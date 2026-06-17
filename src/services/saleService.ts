@@ -916,7 +916,8 @@ export const updateSaleTracking = async (
   id: string,
   trackingNumber: string,
   courierStatus: string,
-  bookingId?: string
+  bookingId?: string,
+  courierProvider?: string,
 ): Promise<Sale> => {
   return await prisma.sale.update({
     where: { id },
@@ -924,6 +925,7 @@ export const updateSaleTracking = async (
       trackingNumber,
       courierStatus,
       bookingId,
+      ...(courierProvider ? { courierProvider } : {}),
     },
   });
 };

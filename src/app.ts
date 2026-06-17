@@ -14,8 +14,11 @@ import collectionRoutes from "./routes/collectionRoutes";
 import deliveryRateRoutes from "./routes/deliveryRateRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
 import deliveryRoutes from "./routes/deliveryRoutes";
+import courierRoutes from "./routes/courierRoutes";
 import leopardsRoutes from "./routes/leopardsRoutes";
 import leopardsConfigRoutes from "./routes/leopardsConfigRoutes";
+import mnpRoutes from "./routes/mnpRoutes";
+import mnpConfigRoutes from "./routes/mnpConfigRoutes";
 import mediaRoutes from "./routes/mediaRoutes";
 
 const app: Application = express();
@@ -44,8 +47,11 @@ app.use("/api/collections", collectionRoutes);
 app.use("/api/delivery-rate", deliveryRateRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/delivery", deliveryRoutes);
+app.use("/api/courier", courierRoutes);
 app.use("/api/leopards", leopardsRoutes);
 app.use("/api/leopards-config", leopardsConfigRoutes);
+app.use("/api/mnp", mnpRoutes);
+app.use("/api/mnp-config", mnpConfigRoutes);
 app.use("/api/media", mediaRoutes);
 
 // Error Handler

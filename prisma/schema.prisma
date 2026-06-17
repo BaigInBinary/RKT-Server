@@ -123,6 +123,24 @@ model LeopardsConfig {
   updatedAt    DateTime @updatedAt
 }
 
+model MnpConfig {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  username       String
+  password       String
+  accountNo      String
+  locationId     String   @default("")
+  returnLocation String   @default("")
+  subAccountId   Int?
+  insertType     Int      @default(19)
+  service        String   @default("Overnight")
+  fragile        String   @default("NO")
+  baseUrl        String   @default("https://mnpcourier.com/mycodapi/api/")
+  trackingUrl    String   @default("https://tracking.mulphilog.com.pk/api/")
+  isSandbox      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
 model ChequeRecord {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   fileName    String
@@ -155,6 +173,7 @@ model ShipmentHistory {
   bookedPacketStatus   String?
   shipmentType         String?
   codValue             String?
+  courierProvider      String?
   rawPayload           Json?
   chequeRef            String?  // Cheque/invoice number from synced cheque report
   chequeDate           String?  // Payment date from synced cheque report
@@ -232,6 +251,7 @@ model Sale {
   trackingNumber String?   
   courierStatus String?     @default("Pending")
   bookingId    String?    
+  courierProvider String?
   createdAt    DateTime   @default(now())
 }
 

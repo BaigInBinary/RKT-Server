@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import * as saleService from '../services/saleService';
 import { sendOrderBookedEmail, sendOrderCancelledEmail } from "../services/orderNotificationService";
 import { uploadImageBuffer } from "../config/r2";
+import { bookCourierShipment, getActiveCourierProvider, getCourierName, normalizeCourierProvider } from "../services/courierService";
+import { upsertMnpLocalShipmentHistory } from "../services/mnpService";
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
@@ -142,8 +144,6 @@ export const getSales = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
-import { bookLeopardsShipment } from '../services/leopardsService';
-
 export const createSale = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validationError = validateSalePayload(req.body);
@@ -270,9 +270,10 @@ export const getOrderAnalytics = async (req: Request, res: Response, next: NextF
 export const updateOrderStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { courierStatus: rawCourierStatus, paymentStatus: rawPaymentStatus } = req.body as {
+    const { courierStatus: rawCourierStatus, paymentStatus: rawPaymentStatus, courierProvider: rawCourierProvider } = req.body as {
       courierStatus?: string;
       paymentStatus?: string;
+      courierProvider?: string;
     };
 
     const courierStatus = rawCourierStatus === "Canceled" ? "Cancelled" : rawCourierStatus;
@@ -282,12 +283,21 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
 
     const VALID_COURIER_STATUSES = ["Pending", "Booked", "In Transit", "Out for Delivery", "Delivered", "Returned", "Cancelled", "Canceled"];
     const VALID_PAYMENT_STATUSES = ["pending", "paid", "failed", "refunded"];
+    const normalizedRawCourierProvider = typeof rawCourierProvider === "string"
+      ? rawCourierProvider.trim().toLowerCase()
+      : "";
+    const requestedCourierProvider = normalizedRawCourierProvider
+      ? normalizeCourierProvider(normalizedRawCourierProvider)
+      : undefined;
 
     if (courierStatus && !VALID_COURIER_STATUSES.includes(courierStatus)) {
       return res.status(400).json({ message: `Invalid courierStatus. Must be one of: ${VALID_COURIER_STATUSES.join(", ")}` });
     }
     if (paymentStatus && !VALID_PAYMENT_STATUSES.includes(paymentStatus)) {
       return res.status(400).json({ message: `Invalid paymentStatus. Must be one of: ${VALID_PAYMENT_STATUSES.join(", ")}` });
+    }
+    if (normalizedRawCourierProvider && !["leopards", "leopard", "mnp", "m&p", "mnpcourier", "mulphilog"].includes(normalizedRawCourierProvider)) {
+      return res.status(400).json({ message: "Invalid courierProvider. Must be leopards or mnp." });
     }
 
     const shouldAttemptBookedNotification = courierStatus === "Booked";
@@ -305,13 +315,15 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
 
       if (!existingOrder.trackingNumber) {
         if (!existingOrder.customerName || !existingOrder.customerPhone || !existingOrder.shippingAddress || !existingOrder.city) {
-          return res.status(400).json({ message: "Order is missing customer details (Name, Phone, Address, City) required to book a Leopards shipment." });
+          return res.status(400).json({ message: "Order is missing customer details (Name, Phone, Address, City) required to book a courier shipment." });
         }
 
         try {
           const weight = existingOrder.items.reduce((sum, item: any) => sum + (item.quantity * 500), 0) || 500;
-          
-          const bookingResponse = await bookLeopardsShipment({
+          const courierProvider = requestedCourierProvider || getActiveCourierProvider();
+          const courierName = getCourierName(courierProvider);
+
+          const bookingData = {
             orderId: existingOrder.id,
             customerName: existingOrder.customerName,
             customerEmail: existingOrder.customerEmail || undefined,
@@ -319,9 +331,11 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
             customerAddress: existingOrder.shippingAddress,
             city: existingOrder.city,
             amount: existingOrder.total,
-            weight
-          });
-          const leopardsOrderId =
+            weight,
+          };
+
+          const bookingResponse = await bookCourierShipment(bookingData, courierProvider);
+          const bookingOrderId =
             (typeof bookingResponse?.booking_order_id === "string" && bookingResponse.booking_order_id.trim()) ||
             (typeof bookingResponse?.booked_packet_order_id === "string" && bookingResponse.booked_packet_order_id.trim()) ||
             (typeof bookingResponse?.order_id === "string" && bookingResponse.order_id.trim()) ||
@@ -331,17 +345,29 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
             const bookingError =
               (typeof bookingResponse?.error === "string" && bookingResponse.error.trim()) ||
               (typeof bookingResponse?.message === "string" && bookingResponse.message.trim()) ||
-              "Leopards API failed to return a tracking number. Check configuration.";
+              `${courierName} API failed to return a tracking number. Check configuration.`;
             return res.status(400).json({ message: bookingError });
           }
 
           // Directly assign it via updateSaleTracking without waiting for generic update below
-          await saleService.updateSaleTracking(
+          const trackedOrder = await saleService.updateSaleTracking(
             existingOrder.id, 
             bookingResponse.track_number, 
             "Booked",
-            leopardsOrderId
+            bookingOrderId,
+            courierProvider,
           );
+
+          if (courierProvider === "mnp") {
+            await upsertMnpLocalShipmentHistory(trackedOrder, {
+              trackingNumber: bookingResponse.track_number,
+              bookingOrderId,
+              weightGrams: weight,
+              status: "Booked",
+              bookingData,
+              source: "sale-status-booking",
+            });
+          }
 
           if ((existingOrder.paymentMethod ?? "").trim().toUpperCase() === "BANK_DEPOSIT") {
             await saleService.updateOrderStatus(existingOrder.id, {
@@ -356,7 +382,8 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
               await sendOrderBookedEmail({
                 order: updated,
                 trackingNumber: bookingResponse.track_number,
-                leopardsOrderId,
+                bookingOrderId,
+                courierName,
               });
             } catch (mailError: any) {
               console.error(
@@ -368,7 +395,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
           return res.status(200).json(updated);
         } catch (error: any) {
           console.error("Manual booking failed:", error);
-          return res.status(400).json({ message: `Leopards Booking Failed: ${error.message || "Unknown error"}` });
+          return res.status(400).json({ message: `Courier Booking Failed: ${error.message || "Unknown error"}` });
         }
       }
     }
@@ -384,6 +411,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
         await sendOrderBookedEmail({
           order,
           trackingNumber: order.trackingNumber,
+          courierName: getCourierName((order as any).courierProvider),
         });
       } catch (mailError: any) {
         console.error(

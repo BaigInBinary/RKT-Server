@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import * as saleService from "../services/saleService";
-import { trackLeopardsShipment } from "../services/leopardsService";
+import { getCourierName, trackCourierShipment } from "../services/courierService";
 
 const router: Router = Router();
 
@@ -24,17 +24,20 @@ router.get("/track/:orderId", async (req: Request, res: Response) => {
             return res.status(404).json({ error: "Order not found" });
         }
 
-        // 2. If it has a Leopards tracking number, fetch the status
+        // 2. If it has a courier tracking number, fetch the status
         let courierDetails = null;
         if (order.trackingNumber) {
-            courierDetails = await trackLeopardsShipment(order.trackingNumber);
+            courierDetails = await trackCourierShipment(order.trackingNumber, (order as any).courierProvider);
         }
+        const courierProvider = (order as any).courierProvider || null;
 
         return res.json({
             orderId: order.id,
             status: order.courierStatus, // Internal status (e.g. Pending, Booked)
             paymentStatus: order.paymentStatus,
             trackingNumber: order.trackingNumber,
+            courierProvider,
+            courierName: getCourierName(courierProvider),
             courierDetails,
             items: order.items,
             total: order.total,

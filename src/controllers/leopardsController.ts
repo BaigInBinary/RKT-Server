@@ -98,6 +98,7 @@ const mapShipmentRecordToApi = (shipment: any) => ({
   booked_packet_status: shipment.bookedPacketStatus || "",
   shipment_type: shipment.shipmentType || "",
   cod_value: shipment.codValue || "",
+  courier_provider: shipment.courierProvider || "leopards",
   cheque_ref: shipment.chequeRef || null,
   cheque_date: shipment.chequeDate || null,
 });
@@ -137,7 +138,13 @@ export const getShipmentHistory = async (req: Request, res: Response, next: Next
     }
 
     const { startDate, endDate } = req.query;
-    const where: Record<string, any> = {};
+    const where: Record<string, any> = {
+      OR: [
+        { courierProvider: "leopards" },
+        { courierProvider: null },
+        { courierProvider: { isSet: false } },
+      ],
+    };
 
     if (startDate || endDate) {
       where.bookingDate = {};
@@ -233,6 +240,7 @@ export const syncShipment = async (req: Request, res: Response, next: NextFuncti
           bookedPacketStatus: shipment?.booked_packet_status || null,
           shipmentType: shipment?.shipment_type || null,
           codValue: shipment?.cod_value || null,
+          courierProvider: "leopards",
           rawPayload: shipment
         };
 
@@ -328,7 +336,8 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
         order.id,
         result.track_number,
         "Booked",
-        leopardsOrderId
+        leopardsOrderId,
+        "leopards"
       );
 
       try {
@@ -336,6 +345,7 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
           order: updatedOrder,
           trackingNumber: result.track_number,
           leopardsOrderId,
+          courierName: "Leopards",
         });
       } catch (mailError: any) {
         console.error(

@@ -5,6 +5,8 @@ type SendOrderBookedEmailInput = {
   order: Sale;
   trackingNumber?: string | null;
   leopardsOrderId?: string | null;
+  bookingOrderId?: string | null;
+  courierName?: string | null;
 };
 
 type MailResult = {
@@ -25,9 +27,9 @@ const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, "");
 
 const resolveOrderIdForCustomerEmail = (
   order: Sale,
-  leopardsOrderId?: string | null,
+  bookingOrderId?: string | null,
 ): string => {
-  const preferred = (leopardsOrderId || "").trim();
+  const preferred = (bookingOrderId || "").trim();
   if (preferred) {
     return preferred;
   }
@@ -73,12 +75,13 @@ const buildOrderBookedHtml = (
   orderIdForEmail: string,
   cnNumber: string,
   trackingUrl: string | null,
+  courierName: string,
 ): string => {
   const safeCustomerName = order.customerName || "Customer";
 
   return `
     <div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.5; color: #111827;">
-      <h2 style="margin: 0 0 12px;">Your order is booked with Leopards</h2>
+      <h2 style="margin: 0 0 12px;">Your order is booked with ${courierName}</h2>
       <p style="margin: 0 0 12px;">Hi ${safeCustomerName},</p>
       <p style="margin: 0 0 16px;">
         Your order has been booked successfully. You can use the details below to track your shipment:
@@ -189,6 +192,8 @@ export const sendOrderBookedEmail = async ({
   order,
   trackingNumber,
   leopardsOrderId,
+  bookingOrderId,
+  courierName,
 }: SendOrderBookedEmailInput): Promise<MailResult> => {
   const toEmail = order.customerEmail?.trim();
   if (!toEmail) {
@@ -205,10 +210,11 @@ export const sendOrderBookedEmail = async ({
   }
 
   const trackingUrl = buildTrackingUrl(order, cnNumber);
-  const orderIdForEmail = resolveOrderIdForCustomerEmail(order, leopardsOrderId);
+  const orderIdForEmail = resolveOrderIdForCustomerEmail(order, bookingOrderId || leopardsOrderId);
+  const resolvedCourierName = (courierName || "Leopards").trim() || "Leopards";
   const subject = `Order booked: ${orderIdForEmail} | CN ${cnNumber}`;
   const text = [
-    `Your order has been booked with Leopards.`,
+    `Your order has been booked with ${resolvedCourierName}.`,
     `Order ID: ${orderIdForEmail}`,
     `CN Number: ${cnNumber}`,
     trackingUrl ? `Track Order: ${trackingUrl}` : "",
@@ -223,7 +229,7 @@ export const sendOrderBookedEmail = async ({
     replyTo: mailContext.replyTo,
     subject,
     text,
-    html: buildOrderBookedHtml(order, orderIdForEmail, cnNumber, trackingUrl),
+    html: buildOrderBookedHtml(order, orderIdForEmail, cnNumber, trackingUrl, resolvedCourierName),
     headers: {
       "X-Auto-Response-Suppress": "All",
       "X-Entity-Ref-ID": `${order.id}-${cnNumber}`,
