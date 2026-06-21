@@ -1,5 +1,11 @@
 import prisma from "../config/prisma";
-import { CollectionSubCategoryMode, Prisma } from "@prisma/client";
+import {
+  CollectionSubCategoryMode,
+  Discount,
+  DiscountScope,
+  DiscountType,
+  Prisma,
+} from "@prisma/client";
 
 export interface CollectionSubCategoryInput {
   subCategoryId: string;
@@ -25,6 +31,71 @@ interface PaginatedInput {
   search?: string;
 }
 
+type PublicCollectionRecord = {
+  id: string;
+  name: string;
+  slug: string;
+  bannerImage: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type ListingItemRecord = {
+  id: string;
+  slug: string | null;
+  name: string;
+  sku: string;
+  category: string;
+  subCategoryId: string | null;
+  imageUrl: string | null;
+  galleryImages: string[];
+  shortDescription: string | null;
+  productType: string | null;
+  vendor: string | null;
+  tags: string[];
+  variants: Prisma.JsonValue;
+  weightInGrams: number | null;
+  isFreeDelivery: boolean | null;
+  quantity: number;
+  price: number;
+  createdAt: Date;
+  updatedAt: Date;
+  showOnMainSite: boolean | null;
+};
+
+type ListingItemResponse = Omit<ListingItemRecord, "price" | "showOnMainSite"> & {
+  pricing: {
+    originalPrice: number;
+    finalPrice: number;
+    discountAmount: number;
+    discountPercent: number;
+    hasDiscount: boolean;
+    appliedDiscounts: Array<{
+      id: string;
+      name: string;
+      amount: number;
+    }>;
+  };
+};
+
+const AUTO_COLLECTIONS = [
+  {
+    id: "virtual-top-collection",
+    name: "Top Collection",
+    slug: "top-collection",
+    bannerImage: "/assets/collection-gaming.jpg",
+  },
+  {
+    id: "virtual-summer-sale",
+    name: "Summer Sale",
+    slug: "summer-sale",
+    bannerImage: "/assets/product-printer.jpg",
+  },
+] satisfies Array<Pick<PublicCollectionRecord, "id" | "name" | "slug" | "bannerImage">>;
+
+const AUTO_COLLECTION_SLUGS = new Set(AUTO_COLLECTIONS.map((collection) => collection.slug));
+
 const slugify = (value: string) =>
   value
     .trim()
@@ -39,7 +110,238 @@ const isMongoObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value);
 const isVisibleOnMainSite = (item: { showOnMainSite?: boolean | null }) =>
   item.showOnMainSite !== false;
 
-const buildPublicCollectionIdentifierFilter = (idOrSlug: string): Prisma.CollectionWhereInput => {
+const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+const isDiscountActive = (discount: Discount, at: Date) => {
+  if (!discount.isActive) {
+    return false;
+  }
+  if (discount.startDate && discount.startDate > at) {
+    return false;
+  }
+  if (discount.endDate && discount.endDate < at) {
+    return false;
+  }
+  return true;
+};
+
+const matchesDiscountScope = (
+  discount: Discount,
+  item: { id: string; category: string; subCategoryId: string | null },
+) => {
+  switch (discount.scope) {
+    case DiscountScope.ALL:
+      return true;
+    case DiscountScope.CATEGORY:
+      return item.category === discount.targetCategory;
+    case DiscountScope.SUBCATEGORY:
+      return Boolean(
+        item.subCategoryId && item.subCategoryId === discount.targetSubCategoryId,
+      );
+    case DiscountScope.ITEM:
+      return item.id === discount.targetItemId;
+    default:
+      return false;
+  }
+};
+
+const parsePurchaseRules = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const row = entry as Record<string, unknown>;
+      const minPurchaseValue = Number(row.minPurchaseValue);
+      const discountAmount = Number(row.discountAmount);
+      if (!Number.isFinite(minPurchaseValue) || !Number.isFinite(discountAmount)) {
+        return null;
+      }
+      if (minPurchaseValue < 0 || discountAmount < 0) {
+        return null;
+      }
+      return {
+        minPurchaseValue,
+        discountAmount,
+      };
+    })
+    .filter(
+      (entry): entry is { minPurchaseValue: number; discountAmount: number } => !!entry,
+    )
+    .sort((a, b) => b.minPurchaseValue - a.minPurchaseValue);
+};
+
+const computeDiscountAmount = (discount: Discount, subtotal: number) => {
+  if (subtotal <= 0 || subtotal < discount.minimumPurchaseValue) {
+    return 0;
+  }
+
+  if (discount.discountType === DiscountType.FLAT) {
+    return Math.min(round2(discount.discountValue ?? 0), subtotal);
+  }
+
+  if (discount.discountType === DiscountType.PERCENTAGE) {
+    const percentage = discount.discountValue ?? 0;
+    return Math.min(round2((subtotal * percentage) / 100), subtotal);
+  }
+
+  const rules = parsePurchaseRules(discount.purchaseValueRules);
+  const matched = rules.find((rule) => subtotal >= rule.minPurchaseValue);
+  if (!matched) {
+    return 0;
+  }
+
+  return Math.min(round2(matched.discountAmount), subtotal);
+};
+
+const applyListingDiscounts = (
+  basePrice: number,
+  item: { id: string; category: string; subCategoryId: string | null },
+  discounts: Discount[],
+) => {
+  let remainingPrice = round2(basePrice);
+  const applied: Array<{ id: string; name: string; amount: number }> = [];
+
+  for (const discount of discounts) {
+    if (!matchesDiscountScope(discount, item)) {
+      continue;
+    }
+
+    const amount = computeDiscountAmount(discount, remainingPrice);
+    if (amount <= 0) {
+      continue;
+    }
+
+    remainingPrice = round2(Math.max(0, remainingPrice - amount));
+    applied.push({ id: discount.id, name: discount.name, amount });
+  }
+
+  const discountAmount = round2(basePrice - remainingPrice);
+  const discountPercent = basePrice > 0 ? round2((discountAmount / basePrice) * 100) : 0;
+
+  return {
+    originalPrice: round2(basePrice),
+    finalPrice: remainingPrice,
+    discountAmount,
+    discountPercent,
+    hasDiscount: discountAmount > 0,
+    appliedDiscounts: applied,
+  };
+};
+
+const getActiveListingDiscounts = async () => {
+  const now = new Date();
+  const activeDiscounts = await prisma.discount.findMany({
+    where: { isActive: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return activeDiscounts.filter((discount) => isDiscountActive(discount, now));
+};
+
+const buildListingSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  sku: true,
+  category: true,
+  subCategoryId: true,
+  imageUrl: true,
+  galleryImages: true,
+  shortDescription: true,
+  productType: true,
+  vendor: true,
+  tags: true,
+  variants: true,
+  weightInGrams: true,
+  isFreeDelivery: true,
+  quantity: true,
+  price: true,
+  createdAt: true,
+  updatedAt: true,
+  showOnMainSite: true,
+} as const;
+
+const buildListingResponse = (
+  item: ListingItemRecord,
+  discounts: Discount[],
+): ListingItemResponse => {
+  const pricing = applyListingDiscounts(
+    item.price,
+    {
+      id: item.id,
+      category: item.category,
+      subCategoryId: item.subCategoryId,
+    },
+    discounts,
+  );
+
+  return {
+    id: item.id,
+    slug: item.slug,
+    name: item.name,
+    sku: item.sku,
+    category: item.category,
+    subCategoryId: item.subCategoryId,
+    imageUrl: item.imageUrl,
+    galleryImages: item.galleryImages || [],
+    shortDescription: item.shortDescription,
+    productType: item.productType,
+    vendor: item.vendor,
+    tags: item.tags || [],
+    variants: item.variants || null,
+    weightInGrams: item.weightInGrams,
+    isFreeDelivery: item.isFreeDelivery,
+    quantity: item.quantity,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    pricing,
+  };
+};
+
+const isTopCollectionItem = (item: ListingItemResponse) =>
+  Math.round(item.pricing.discountPercent) === 30;
+
+const isSummerSaleItem = (item: ListingItemResponse) =>
+  item.pricing.discountPercent > 0 && item.pricing.discountPercent <= 40.0001;
+
+const filterVirtualCollectionItems = (
+  collectionSlug: string,
+  items: ListingItemResponse[],
+) => {
+  if (collectionSlug === "top-collection") {
+    return items.filter(isTopCollectionItem);
+  }
+  if (collectionSlug === "summer-sale") {
+    return items.filter(isSummerSaleItem);
+  }
+  return items;
+};
+
+const getVirtualCollectionBySlug = (slug: string) =>
+  AUTO_COLLECTIONS.find((collection) => collection.slug === slug) || null;
+
+const getAllVisibleListingItems = async () => {
+  const [items, discounts] = await Promise.all([
+    prisma.item.findMany({
+      orderBy: { createdAt: "desc" },
+      select: buildListingSelect,
+    }),
+    getActiveListingDiscounts(),
+  ]);
+
+  return items
+    .filter(isVisibleOnMainSite)
+    .map((item) => buildListingResponse(item as ListingItemRecord, discounts));
+};
+
+const buildPublicCollectionIdentifierFilter = (
+  idOrSlug: string,
+): Prisma.CollectionWhereInput => {
   if (isMongoObjectId(idOrSlug)) {
     return {
       OR: [{ id: idOrSlug }, { slug: idOrSlug }],
@@ -109,6 +411,53 @@ const loadResolvedItemIds = async (collectionId: string) => {
     });
 
   return Array.from(ids);
+};
+
+const loadCollectionItems = async (collectionId: string) => {
+  const itemIds = await loadResolvedItemIds(collectionId);
+  if (itemIds.length === 0) {
+    return [];
+  }
+
+  const [items, discounts] = await Promise.all([
+    prisma.item.findMany({
+      where: { id: { in: itemIds } },
+      orderBy: { createdAt: "desc" },
+      select: buildListingSelect,
+    }),
+    getActiveListingDiscounts(),
+  ]);
+
+  return items
+    .filter(isVisibleOnMainSite)
+    .map((item) => buildListingResponse(item as ListingItemRecord, discounts));
+};
+
+const findCollectionBySlugPublic = async (slug: string) => {
+  const virtualCollection = getVirtualCollectionBySlug(slug);
+  if (virtualCollection) {
+    return {
+      ...virtualCollection,
+      isActive: true,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    } satisfies PublicCollectionRecord;
+  }
+
+  return prisma.collection.findFirst({
+    where: {
+      AND: [{ isActive: true }, { slug }],
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      bannerImage: true,
+      isActive: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
 };
 
 const validateAndNormalizePayload = async (
@@ -274,7 +623,7 @@ const buildCollectionCreateData = (
 };
 
 export const listCollectionsPublic = async () => {
-  return prisma.collection.findMany({
+  const collections = await prisma.collection.findMany({
     where: { isActive: true },
     orderBy: { createdAt: "desc" },
     select: {
@@ -287,9 +636,27 @@ export const listCollectionsPublic = async () => {
       updatedAt: true,
     },
   });
+
+  const filteredCollections = collections.filter(
+    (collection) => !AUTO_COLLECTION_SLUGS.has(collection.slug),
+  );
+
+  return [
+    ...AUTO_COLLECTIONS.map((collection) => ({
+      ...collection,
+      isActive: true,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    })),
+    ...filteredCollections,
+  ];
 };
 
 export const getCollectionByIdPublic = async (idOrSlug: string) => {
+  if (!isMongoObjectId(idOrSlug)) {
+    return findCollectionBySlugPublic(idOrSlug);
+  }
+
   return prisma.collection.findFirst({
     where: {
       AND: [
@@ -316,56 +683,36 @@ export const getCollectionItemsPublic = async (
   idOrSlug: string,
   query: PaginatedInput,
 ) => {
-  const collection = await prisma.collection.findFirst({
-    where: {
-      AND: [
-        { isActive: true },
-        buildPublicCollectionIdentifierFilter(idOrSlug),
-      ],
-    },
-    select: { id: true },
-  });
+  const page = Number.isFinite(query.page) ? Math.max(1, Math.floor(query.page as number)) : 1;
+  const limit = Number.isFinite(query.limit) ? Math.min(100, Math.max(1, Math.floor(query.limit as number))) : 20;
 
+  const collection = await getCollectionByIdPublic(idOrSlug);
   if (!collection) {
     throw new Error("Collection not found");
   }
 
-  const itemIds = await loadResolvedItemIds(collection.id);
-  if (itemIds.length === 0) {
-    return {
-      data: [],
-      meta: {
-        page: 1,
-        limit: 20,
-        totalItems: 0,
-        totalPages: 1,
-      },
-    };
+  let items: ListingItemResponse[] = [];
+
+  if (AUTO_COLLECTION_SLUGS.has(collection.slug)) {
+    items = filterVirtualCollectionItems(
+      collection.slug,
+      await getAllVisibleListingItems(),
+    );
+  } else {
+    items = await loadCollectionItems(collection.id);
   }
 
-  const page = Number.isFinite(query.page) ? Math.max(1, Math.floor(query.page as number)) : 1;
-  const limit = Number.isFinite(query.limit) ? Math.min(100, Math.max(1, Math.floor(query.limit as number))) : 20;
-
-  const where: Prisma.ItemWhereInput = {
-    id: { in: itemIds },
-  };
-  if (query.search && query.search.trim()) {
-    const term = query.search.trim();
-    where.OR = [
-      { name: { contains: term, mode: "insensitive" } },
-      { sku: { contains: term, mode: "insensitive" } },
-      { category: { contains: term, mode: "insensitive" } },
-    ];
-  }
-
-  const items = await prisma.item.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-  });
-  const visibleItems = items.filter(isVisibleOnMainSite);
   const searchedItems = query.search && query.search.trim()
-    ? visibleItems
-    : visibleItems;
+    ? items.filter((item) => {
+        const term = query.search!.trim().toLowerCase();
+        return (
+          item.name.toLowerCase().includes(term) ||
+          item.sku.toLowerCase().includes(term) ||
+          item.category.toLowerCase().includes(term)
+        );
+      })
+    : items;
+
   const totalItems = searchedItems.length;
   const paginatedItems = searchedItems.slice((page - 1) * limit, page * limit);
 
