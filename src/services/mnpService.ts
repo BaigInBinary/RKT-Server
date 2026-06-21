@@ -169,6 +169,7 @@ export interface MnpBookingData {
   remarks?: string;
   service?: string;
   fragile?: string;
+  insuranceValue?: string | number;
 }
 
 export const getAllMnpCities = async (): Promise<Array<{ id: string; name: string }>> => {
@@ -392,7 +393,7 @@ export const bookMnpShipment = async (data: MnpBookingData) => {
       fragile: String(data.fragile || MNP_FRAGILE || "NO").toUpperCase() === "YES" ? "YES" : "NO",
       service: String(data.service || MNP_SERVICE || "Overnight").slice(0, 50),
       remarks: String(data.remarks || `Order ${data.orderId}`).slice(0, 400),
-      insuranceValue: "0",
+      insuranceValue: String(data.insuranceValue ?? "0").replace(/,/g, "").slice(0, 20) || "0",
       locationID: MNP_LOCATION_ID,
       AccountNo: MNP_ACCOUNT_NO,
       InsertType: MNP_INSERT_TYPE,
@@ -635,14 +636,19 @@ export const getMnpPaymentDetails = async (cnNumbers: string) => {
       const shipment = Array.isArray((tracked as any).tracking_Details)
         ? (tracked as any).tracking_Details[0] || {}
         : {};
+      const paymentId = firstValue(shipment, ["PaymentID", "payment_id", "PaymentId"]);
+      const paymentDate = firstValue(shipment, ["PaymentDate", "payment_date", "PaidOn"]);
+      const amountPaid = firstValue(shipment, ["AmountPaid", "amount_paid", "PaidAmount", "NetPayable"]);
+      const codAmount = firstValue(shipment, ["CODAmount", "CodAmount", "cod_amount"]);
+      const instrumentNumber = firstValue(shipment, ["InstrumentNumber", "instrument_number", "ChequeNo", "InvoiceNo"]);
 
       return {
         booked_packet_cn: cn,
-        payment_id: shipment.PaymentID || null,
-        payment_date: shipment.PaymentDate || null,
-        amount_paid: shipment.AmountPaid || null,
-        cod_amount: shipment.CODAmount || null,
-        instrument_number: shipment.InstrumentNumber || null,
+        payment_id: paymentId || null,
+        payment_date: paymentDate || null,
+        amount_paid: amountPaid || null,
+        cod_amount: codAmount || null,
+        instrument_number: instrumentNumber || null,
         message: (tracked as any).message || "",
         raw: shipment,
       };

@@ -267,13 +267,51 @@ export const getOrderAnalytics = async (req: Request, res: Response, next: NextF
   }
 };
 
+export const updateOrderCustomerDetails = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const orderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const shippingAddress =
+      typeof req.body?.shippingAddress === "string" ? req.body.shippingAddress.trim() : "";
+    const city = typeof req.body?.city === "string" ? req.body.city.trim() : "";
+    const postalCode = typeof req.body?.postalCode === "string" ? req.body.postalCode.trim() : "";
+
+    if (!shippingAddress) {
+      return res.status(400).json({ message: "Shipping address is required." });
+    }
+
+    const order = await saleService.updateOrderCustomerDetails(orderId, {
+      shippingAddress,
+      city: city || null,
+      postalCode: postalCode || null,
+    });
+
+    res.status(200).json(order);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const updateOrderStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { courierStatus: rawCourierStatus, paymentStatus: rawPaymentStatus, courierProvider: rawCourierProvider } = req.body as {
+    const {
+      courierStatus: rawCourierStatus,
+      paymentStatus: rawPaymentStatus,
+      courierProvider: rawCourierProvider,
+      mnpBooking,
+    } = req.body as {
       courierStatus?: string;
       paymentStatus?: string;
       courierProvider?: string;
+      mnpBooking?: {
+        weight?: number | string;
+        pieces?: number | string;
+        productDetails?: string;
+        service?: string;
+        fragile?: string;
+        remarks?: string;
+        insuranceValue?: number | string;
+      };
     };
 
     const courierStatus = rawCourierStatus === "Canceled" ? "Cancelled" : rawCourierStatus;
@@ -319,9 +357,15 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
         }
 
         try {
-          const weight = existingOrder.items.reduce((sum, item: any) => sum + (item.quantity * 500), 0) || 500;
+          const defaultWeight = existingOrder.items.reduce((sum, item: any) => sum + (item.quantity * 500), 0) || 500;
+          const weight = Number(mnpBooking?.weight) || defaultWeight;
+          const pieces = Number(mnpBooking?.pieces) || existingOrder.items.reduce((sum, item: any) => sum + (item.quantity || 0), 0) || 1;
           const courierProvider = requestedCourierProvider || getActiveCourierProvider();
           const courierName = getCourierName(courierProvider);
+          const defaultProductDetails = existingOrder.items
+            .map((item: any) => item?.name)
+            .filter(Boolean)
+            .join(", ");
 
           const bookingData = {
             orderId: existingOrder.id,
@@ -332,6 +376,18 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
             city: existingOrder.city,
             amount: existingOrder.total,
             weight,
+            pieces,
+            ...(courierProvider === "mnp" && {
+              productDetails: String(mnpBooking?.productDetails || defaultProductDetails || "Order items").slice(0, 50),
+              service: typeof mnpBooking?.service === "string" ? mnpBooking.service.slice(0, 50) : undefined,
+              fragile: typeof mnpBooking?.fragile === "string"
+                ? (mnpBooking.fragile.toUpperCase() === "YES" ? "YES" : "NO")
+                : undefined,
+              remarks: typeof mnpBooking?.remarks === "string" ? mnpBooking.remarks.slice(0, 400) : undefined,
+              insuranceValue: mnpBooking?.insuranceValue === undefined || mnpBooking.insuranceValue === null
+                ? "0"
+                : String(mnpBooking.insuranceValue).replace(/,/g, "").slice(0, 20),
+            }),
           };
 
           const bookingResponse = await bookCourierShipment(bookingData, courierProvider);

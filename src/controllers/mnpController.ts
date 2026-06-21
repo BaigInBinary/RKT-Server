@@ -12,7 +12,7 @@ import {
   upsertMnpLocalShipmentHistory,
   voidMnpConsignments,
 } from "../services/mnpService";
-import { getSaleById, updateSaleTracking } from "../services/saleService";
+import { getSaleById, updateOrderStatus as updateLocalOrderStatus, updateSaleTracking } from "../services/saleService";
 import { sendOrderBookedEmail } from "../services/orderNotificationService";
 import prisma from "../config/prisma";
 
@@ -45,6 +45,20 @@ const isBrokenMnpStatus = (status?: string | null) => {
     normalized.includes("object reference not set") ||
     normalized.includes("exception") ||
     normalized.includes("internal server error")
+  );
+};
+
+const parseMnpAmount = (value: unknown): number => {
+  const parsed = Number(String(value || "").replace(/,/g, "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const isMnpPaymentConfirmed = (detail: any): boolean => {
+  return (
+    parseMnpAmount(detail?.amount_paid) > 0 ||
+    Boolean(String(detail?.payment_id || "").trim()) ||
+    Boolean(String(detail?.payment_date || "").trim()) ||
+    Boolean(String(detail?.instrument_number || "").trim())
   );
 };
 
@@ -367,6 +381,57 @@ export const getPaymentDetails = async (req: Request, res: Response, next: NextF
       return res.status(400).json({ message: "CN Numbers are required" });
     }
     const result = await getMnpPaymentDetails(cnNumbers as string);
+    const details = Array.isArray((result as any)?.details)
+      ? (result as any).details
+      : (result ? [result] : []);
+    const paidDetails = details.filter(isMnpPaymentConfirmed);
+    const paidTrackingNumbers = paidDetails
+      .map((detail: any) => String(detail?.booked_packet_cn || "").trim())
+      .filter(Boolean);
+
+    let updatedOrders = 0;
+    if (paidTrackingNumbers.length > 0) {
+      const orders = await (prisma as any).sale.findMany({
+        where: {
+          trackingNumber: { in: paidTrackingNumbers },
+          courierProvider: "mnp",
+        },
+        select: { id: true, paymentStatus: true },
+      });
+      const ordersToMarkPaid = orders.filter(
+        (order: any) => String(order?.paymentStatus || "").toLowerCase() !== "paid",
+      );
+
+      await Promise.all(
+        ordersToMarkPaid.map((order: any) => updateLocalOrderStatus(order.id, { paymentStatus: "paid" })),
+      );
+      updatedOrders = ordersToMarkPaid.length;
+
+      const shipmentHistoryModel = (prisma as any).shipmentHistory;
+      if (shipmentHistoryModel) {
+        await Promise.all(
+          paidDetails.map((detail: any) => {
+            const trackingNumber = String(detail?.booked_packet_cn || "").trim();
+            if (!trackingNumber) return Promise.resolve();
+
+            return shipmentHistoryModel.updateMany({
+              where: {
+                trackingNumber,
+                courierProvider: "mnp",
+              },
+              data: {
+                chequeRef: String(detail?.payment_id || detail?.instrument_number || "Paid").trim(),
+                chequeDate: detail?.payment_date ? String(detail.payment_date) : null,
+              },
+            });
+          }),
+        );
+      }
+    }
+
+    if (result && typeof result === "object") {
+      (result as any).updated_orders = updatedOrders;
+    }
     res.status(200).json(result);
   } catch (error) {
     next(error);
@@ -398,7 +463,16 @@ export const getShipmentDetailsByOrder = async (req: Request, res: Response, nex
 
 export const bookShipment = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { orderId, weight, pieces } = req.body;
+    const {
+      orderId,
+      weight,
+      pieces,
+      productDetails,
+      remarks,
+      fragile,
+      service,
+      insuranceValue,
+    } = req.body;
 
     if (!orderId || !weight) {
       return res.status(400).json({ message: "Order ID and Weight are required" });
@@ -419,9 +493,20 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
       amount: order.total,
       weight: Number(weight),
       pieces: Number(pieces) || 1,
-      productDetails: Array.isArray(order.items)
-        ? order.items.map((item: any) => item?.name).filter(Boolean).join(", ").slice(0, 50)
-        : "Order items",
+      productDetails: String(
+        productDetails ||
+        (Array.isArray(order.items)
+          ? order.items.map((item: any) => item?.name).filter(Boolean).join(", ")
+          : "Order items"),
+      ).slice(0, 50),
+      remarks: typeof remarks === "string" ? remarks.slice(0, 400) : undefined,
+      fragile: typeof fragile === "string"
+        ? (fragile.toUpperCase() === "YES" ? "YES" : "NO")
+        : undefined,
+      service: typeof service === "string" && service.trim() ? service.trim().slice(0, 50) : undefined,
+      insuranceValue: insuranceValue === undefined || insuranceValue === null
+        ? "0"
+        : String(insuranceValue).replace(/,/g, "").slice(0, 20),
     };
 
     const result = await bookMnpShipment(bookingData);
@@ -439,7 +524,12 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
         "mnp",
       );
 
-      await upsertMnpLocalShipmentHistory(updatedOrder, {
+      const orderAfterPaymentUpdate =
+        (order.paymentMethod ?? "").trim().toUpperCase() === "BANK_DEPOSIT"
+          ? await updateLocalOrderStatus(order.id, { paymentStatus: "paid" })
+          : updatedOrder;
+
+      await upsertMnpLocalShipmentHistory(orderAfterPaymentUpdate, {
         trackingNumber: result.track_number,
         bookingOrderId,
         weightGrams: Number(weight),
@@ -450,20 +540,20 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
 
       try {
         await sendOrderBookedEmail({
-          order: updatedOrder,
+          order: orderAfterPaymentUpdate,
           trackingNumber: result.track_number,
           bookingOrderId,
           courierName: "M&P",
         });
       } catch (mailError: any) {
-        console.error(`Booked notification email failed for order ${updatedOrder.id}:`, mailError?.message || mailError);
+        console.error(`Booked notification email failed for order ${orderAfterPaymentUpdate.id}:`, mailError?.message || mailError);
       }
 
       return res.status(200).json({
         status: 1,
         message: result.message || "M&P shipment booked successfully",
         track_number: result.track_number,
-        order: updatedOrder,
+        order: orderAfterPaymentUpdate,
       });
     }
 

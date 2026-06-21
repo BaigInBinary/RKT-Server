@@ -740,6 +740,12 @@ export interface UpdateOrderStatusInput {
   paymentStatus?: string;
 }
 
+export interface UpdateOrderCustomerDetailsInput {
+  shippingAddress: string;
+  city?: string | null;
+  postalCode?: string | null;
+}
+
 // Update courier / payment status. When moved to Returned/Cancelled/Canceled,
 // this also restores item stock and sold/hourly counters once.
 export const updateOrderStatus = async (
@@ -815,6 +821,27 @@ export const updateOrderStatus = async (
       },
     });
   }, "updateOrderStatus");
+};
+
+export const updateOrderCustomerDetails = async (
+  id: string,
+  data: UpdateOrderCustomerDetailsInput,
+): Promise<Sale> => {
+  return await runTransactionWithRetry(async (tx) => {
+    const existingOrder = await tx.sale.findUnique({ where: { id } });
+    if (!existingOrder) {
+      throw Object.assign(new Error("Order not found"), { statusCode: 404 });
+    }
+
+    return await tx.sale.update({
+      where: { id },
+      data: {
+        shippingAddress: data.shippingAddress,
+        city: data.city || null,
+        postalCode: data.postalCode || null,
+      },
+    });
+  }, "updateOrderCustomerDetails");
 };
 
 export const getOrderAnalytics = async (

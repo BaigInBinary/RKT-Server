@@ -45,6 +45,11 @@ router.get(
   saleController.getOrderAnalytics,
 );
 router.patch(
+  '/orders/:id/customer',
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
+  saleController.updateOrderCustomerDetails,
+);
+router.patch(
   '/orders/:id/status',
   authorizeRoles("SUPER_ADMIN", "ADMIN", "MANAGER"),
   saleController.updateOrderStatus,

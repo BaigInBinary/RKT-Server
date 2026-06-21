@@ -10,7 +10,10 @@ export const normalizeCourierProvider = (value?: string | null): CourierProvider
   if (["mnp", "m&p", "mnpcourier", "mulphilog"].includes(normalized)) {
     return "mnp";
   }
-  return "leopards";
+  if (["leopards", "leopard"].includes(normalized)) {
+    return "leopards";
+  }
+  return "mnp";
 };
 
 export const getActiveCourierProvider = (): CourierProvider =>
