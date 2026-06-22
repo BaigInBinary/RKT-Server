@@ -8,6 +8,7 @@ import { upsertMnpLocalShipmentHistory } from "../services/mnpService";
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PAKISTAN_PHONE_PATTERN = /^(?:03\d{9}|\+?923\d{9})$/;
 
 const validateSaleItems = (items: unknown): string | null => {
   if (!Array.isArray(items)) {
@@ -119,8 +120,8 @@ const validateSalePayload = (payload: unknown): string | null => {
     if (!customerEmail || !EMAIL_PATTERN.test(customerEmail)) {
       return "`customerEmail` is required and must be a valid email address.";
     }
-    if (!customerPhone || customerPhone.replace(/\D/g, "").length < 10) {
-      return "`customerPhone` is required and must contain at least 10 digits.";
+    if (!PAKISTAN_PHONE_PATTERN.test(customerPhone)) {
+      return "`customerPhone` is required and must be a valid Pakistan phone number, e.g. 03329777119, 923329777119, or +923329777119.";
     }
   }
 
@@ -434,8 +435,9 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
           // Return immediately with updated order
           const updated = await saleService.getSaleById(orderId);
           if (updated) {
+            let customerNotification = { sent: false, reason: "not attempted" };
             try {
-              await sendOrderBookedEmail({
+              customerNotification = await sendOrderBookedEmail({
                 order: updated,
                 trackingNumber: bookingResponse.track_number,
                 bookingOrderId,
@@ -446,7 +448,9 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
                 `Booked notification email failed for order ${updated.id}:`,
                 mailError?.message || mailError,
               );
+              customerNotification = { sent: false, reason: mailError?.message || "email failed" };
             }
+            return res.status(200).json({ ...updated, customerNotification });
           }
           return res.status(200).json(updated);
         } catch (error: any) {
@@ -457,6 +461,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     }
 
     const order = await saleService.updateOrderStatus(orderId, { courierStatus, paymentStatus });
+    let customerNotification: { sent: boolean; reason?: string } | undefined;
     if (
       shouldAttemptBookedNotification &&
       order &&
@@ -464,7 +469,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
       (existingOrderBeforeStatusUpdate?.courierStatus ?? "").trim().toLowerCase() !== "booked"
     ) {
       try {
-        await sendOrderBookedEmail({
+        customerNotification = await sendOrderBookedEmail({
           order,
           trackingNumber: order.trackingNumber,
           courierName: getCourierName((order as any).courierProvider),
@@ -474,6 +479,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
           `Booked notification email failed for order ${order.id}:`,
           mailError?.message || mailError,
         );
+        customerNotification = { sent: false, reason: mailError?.message || "email failed" };
       }
     }
 
@@ -483,16 +489,17 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
       !["cancelled", "canceled"].includes((existingOrderBeforeStatusUpdate?.courierStatus ?? "").trim().toLowerCase())
     ) {
       try {
-        await sendOrderCancelledEmail({ order });
+        customerNotification = await sendOrderCancelledEmail({ order });
       } catch (mailError: any) {
         console.error(
           `Cancelled notification email failed for order ${order.id}:`,
           mailError?.message || mailError,
         );
+        customerNotification = { sent: false, reason: mailError?.message || "email failed" };
       }
     }
 
-    res.status(200).json(order);
+    res.status(200).json(customerNotification ? { ...order, customerNotification } : order);
   } catch (error) {
     next(error);
   }

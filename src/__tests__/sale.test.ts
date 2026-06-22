@@ -56,6 +56,70 @@ describe("Sale API", () => {
       );
       expect(itemResponse.body.quantity).toBe(98); // 100 - 2
     });
+
+    it.each(["923329777119", "+923329777119", "03329777119"])(
+      "should accept Pakistan delivery phone format %s",
+      async (customerPhone) => {
+        const response = await request(app)
+          .post("/api/sales")
+          .send({
+            items: [
+              {
+                itemId: createdItemId,
+                name: "Sale Test Item",
+                price: 50.0,
+                quantity: 1,
+                total: 50.0,
+              },
+            ],
+            subtotal: 50.0,
+            tax: 0,
+            discount: 0,
+            total: 50.0,
+            customerName: "Test Customer",
+            customerEmail: "customer@example.com",
+            customerPhone,
+            shippingAddress: "Test address",
+            city: "Lahore",
+            paymentMethod: "COD",
+            paymentStatus: "PENDING",
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.customerPhone).toBe(customerPhone);
+        await request(app).delete(`/api/sales/${response.body.id}`);
+      },
+    );
+
+    it("should reject non-Pakistan delivery phone formats", async () => {
+      const response = await request(app)
+        .post("/api/sales")
+        .send({
+          items: [
+            {
+              itemId: createdItemId,
+              name: "Sale Test Item",
+              price: 50.0,
+              quantity: 1,
+              total: 50.0,
+            },
+          ],
+          subtotal: 50.0,
+          tax: 0,
+          discount: 0,
+          total: 50.0,
+          customerName: "Test Customer",
+          customerEmail: "customer@example.com",
+          customerPhone: "1234567890",
+          shippingAddress: "Test address",
+          city: "Lahore",
+          paymentMethod: "COD",
+          paymentStatus: "PENDING",
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain("Pakistan phone number");
+    });
   });
 
   describe("GET /api/sales", () => {

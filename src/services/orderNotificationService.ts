@@ -81,10 +81,10 @@ const buildOrderBookedHtml = (
 
   return `
     <div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.5; color: #111827;">
-      <h2 style="margin: 0 0 12px;">Your order is booked with ${courierName}</h2>
+      <h2 style="margin: 0 0 12px;">Your order is approved and booked with ${courierName}</h2>
       <p style="margin: 0 0 12px;">Hi ${safeCustomerName},</p>
       <p style="margin: 0 0 16px;">
-        Your order has been booked successfully. You can use the details below to track your shipment:
+        Your order has been approved and booked successfully. You can use the tracking ID below to track your shipment:
       </p>
       <table style="border-collapse: collapse; width: 100%; max-width: 480px; margin: 0 0 16px;">
         <tr>
@@ -92,7 +92,7 @@ const buildOrderBookedHtml = (
           <td style="padding: 8px; border: 1px solid #e5e7eb;">${orderIdForEmail}</td>
         </tr>
         <tr>
-          <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: 600;">CN Number</td>
+          <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: 600;">Tracking ID</td>
           <td style="padding: 8px; border: 1px solid #e5e7eb;">${cnNumber}</td>
         </tr>
       </table>
@@ -212,11 +212,11 @@ export const sendOrderBookedEmail = async ({
   const trackingUrl = buildTrackingUrl(order, cnNumber);
   const orderIdForEmail = resolveOrderIdForCustomerEmail(order, bookingOrderId || leopardsOrderId);
   const resolvedCourierName = (courierName || "Leopards").trim() || "Leopards";
-  const subject = `Order booked: ${orderIdForEmail} | CN ${cnNumber}`;
+  const subject = `Order approved: ${orderIdForEmail} | Tracking ID ${cnNumber}`;
   const text = [
-    `Your order has been booked with ${resolvedCourierName}.`,
+    `Your order has been approved and booked with ${resolvedCourierName}.`,
     `Order ID: ${orderIdForEmail}`,
-    `CN Number: ${cnNumber}`,
+    `Tracking ID: ${cnNumber}`,
     trackingUrl ? `Track Order: ${trackingUrl}` : "",
     `Support Email: ${SUPPORT_EMAIL}`,
   ]
