@@ -377,6 +377,7 @@ export const bookMnpShipment = async (data: MnpBookingData) => {
 
   try {
     const destinationCityName = await resolveCityName(data.city);
+    const remarks = String(data.remarks || `Order ${data.orderId}`).trim().slice(0, 400);
     const payload = {
       username: MNP_USERNAME,
       password: MNP_PASSWORD,
@@ -392,7 +393,8 @@ export const bookMnpShipment = async (data: MnpBookingData) => {
       productDetails: String(data.productDetails || "Order items").slice(0, 50),
       fragile: String(data.fragile || MNP_FRAGILE || "NO").toUpperCase() === "YES" ? "YES" : "NO",
       service: String(data.service || MNP_SERVICE || "Overnight").slice(0, 50),
-      remarks: String(data.remarks || `Order ${data.orderId}`).slice(0, 400),
+      remarks,
+      Remarks: remarks,
       insuranceValue: String(data.insuranceValue ?? "0").replace(/,/g, "").slice(0, 20) || "0",
       locationID: MNP_LOCATION_ID,
       AccountNo: MNP_ACCOUNT_NO,
