@@ -254,6 +254,83 @@ const getMeaningfulMnpStatus = (value: unknown): string => {
   return looksLikeApiFailure ? "" : status;
 };
 
+// M&P returns tracking events in an arbitrary order. Pick the most recent one
+// using the numeric TrackingTagID first (higher = later stage) and the
+// TransactionTime as a tie-breaker, rather than trusting array position.
+const parseMnpEventTime = (value: unknown): number => {
+  const text = String(value || "").trim();
+  if (!text) return 0;
+  const parsed = new Date(text.replace(" ", "T"));
+  const time = parsed.getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
+const pickLatestMnpEvent = (events: any[]): any => {
+  if (!Array.isArray(events) || events.length === 0) return {};
+  return events.reduce((latest, event) => {
+    const latestTag = Number(latest?.TrackingTagID);
+    const eventTag = Number(event?.TrackingTagID);
+    const bothTagsValid = Number.isFinite(latestTag) && Number.isFinite(eventTag);
+
+    if (bothTagsValid && eventTag !== latestTag) {
+      return eventTag > latestTag ? event : latest;
+    }
+
+    return parseMnpEventTime(event?.TransactionTime) >= parseMnpEventTime(latest?.TransactionTime)
+      ? event
+      : latest;
+  });
+};
+
+// Maps a raw M&P status / narration to the local courier status vocabulary used
+// on the Orders board. Returns null when the status can't be mapped confidently.
+export const mapMnpStatusToCourierStatus = (
+  value: unknown,
+): "Booked" | "In Transit" | "Out for Delivery" | "Delivered" | "Returned" | "Cancelled" | null => {
+  const status = getMeaningfulMnpStatus(value).toLowerCase();
+  if (!status) return null;
+
+  if (status.includes("deliver") && !status.includes("out for") && !status.includes("undeliver")) {
+    return "Delivered";
+  }
+  if (status.includes("void") || status.includes("cancel")) return "Cancelled";
+  if (
+    status.includes("return") ||
+    status.includes("rs-") ||
+    status.includes("shipper")
+  ) {
+    return "Returned";
+  }
+  if (
+    status.includes("out for delivery") ||
+    status.includes("out-for-delivery") ||
+    status.includes("dispatch for delivery") ||
+    status.includes("loaded for delivery")
+  ) {
+    return "Out for Delivery";
+  }
+  if (
+    status.includes("transit") ||
+    status.includes("arrived") ||
+    status.includes("departed") ||
+    status.includes("received at") ||
+    status.includes("forward") ||
+    status.includes("on route") ||
+    status.includes("on the way") ||
+    status.includes("undeliver") ||
+    status.includes("re-attempt") ||
+    status.includes("reattempt") ||
+    status.includes("dispatch")
+  ) {
+    return "In Transit";
+  }
+  if (status.includes("book") || status.includes("order placed") || status.includes("picked")) {
+    return "Booked";
+  }
+
+  return null;
+};
+
 const getOrderWeightGrams = (order: any, fallbackWeightGrams?: number): number => {
   const fallback = Number(fallbackWeightGrams);
   if (Number.isFinite(fallback) && fallback > 0) return fallback;
@@ -508,7 +585,7 @@ export const trackMnpShipment = async (trackingNumber: string) => {
     const root = firstArrayEntry(response.data);
     const shipment = Array.isArray(root?.tracking_Details) ? root.tracking_Details[0] || {} : {};
     const events = Array.isArray(shipment?.CNTrackingDetail) ? shipment.CNTrackingDetail : [];
-    const latestEvent = events[events.length - 1] || {};
+    const latestEvent = pickLatestMnpEvent(events);
     const latestStatus = String(
       latestEvent?.TrackingStatus ||
       shipment?.DeliveryStatus ||

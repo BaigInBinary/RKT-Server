@@ -289,14 +289,20 @@ const isRestockCourierStatus = (value?: string | null): boolean => {
   return RESTOCK_COURIER_STATUSES.has(value.trim().toLowerCase());
 };
 
-const isOnlineRevenueEligible = (order: Pick<Sale, "paymentMethod" | "paymentStatus" | "courierStatus">): boolean => {
-  const paymentMethod = (order.paymentMethod ?? "").trim().toUpperCase();
-  const paymentStatus = (order.paymentStatus ?? "").trim().toUpperCase();
+const CONFIRMED_ONLINE_COURIER_STATUSES = new Set([
+  "BOOKED",
+  "IN TRANSIT",
+  "OUT FOR DELIVERY",
+  "DELIVERED",
+]);
+
+// An online order counts as a confirmed sale once it has been approved/booked
+// with a courier and is progressing (or delivered). Pending, Cancelled and
+// Returned orders are excluded. Payment method does not gate this, so COD
+// online orders are counted once confirmed.
+const isConfirmedOnlineOrder = (order: Pick<Sale, "courierStatus">): boolean => {
   const courierStatus = (order.courierStatus ?? "").trim().toUpperCase();
-  const isReturnedOrCancelled =
-    courierStatus === "RETURNED" || courierStatus === "CANCELLED" || courierStatus === "CANCELED";
-  const isOnlinePaidMethod = paymentMethod === "PREPAID" || paymentMethod === "BANK_DEPOSIT";
-  return isOnlinePaidMethod && paymentStatus === "PAID" && !isReturnedOrCancelled;
+  return CONFIRMED_ONLINE_COURIER_STATUSES.has(courierStatus);
 };
 
 const isBookedStatus = (value?: string | null) =>
@@ -868,7 +874,7 @@ export const getOrderAnalytics = async (
     return status === "DELIVERED";
   }).length;
 
-  const revenueEligibleOrders = orders.filter(isOnlineRevenueEligible);
+  const revenueEligibleOrders = orders.filter(isConfirmedOnlineOrder);
   const chequeRecords = await (prisma as any).chequeRecord.findMany({
     select: {
       id: true,

@@ -8,6 +8,7 @@ import {
   getMnpShipmentByOrderIds,
   getMnpShipmentHistory,
   getMnpTariff,
+  mapMnpStatusToCourierStatus,
   trackMnpShipment,
   upsertMnpLocalShipmentHistory,
   voidMnpConsignments,
@@ -36,6 +37,31 @@ const mapShipmentRecordToApi = (shipment: any) => ({
   cheque_ref: shipment.chequeRef || null,
   cheque_date: shipment.chequeDate || null,
 });
+
+// Ordered pipeline used to decide whether a freshly tracked M&P status is a
+// step forward for a local order. Terminal statuses are handled separately.
+const COURIER_STATUS_RANK: Record<string, number> = {
+  pending: 0,
+  booked: 1,
+  "in transit": 2,
+  "out for delivery": 3,
+  delivered: 4,
+};
+const TERMINAL_COURIER_STATUSES = new Set(["delivered", "returned", "cancelled", "canceled"]);
+
+const shouldAdvanceCourierStatus = (current: string | null | undefined, next: string): boolean => {
+  const currentNorm = String(current || "").trim().toLowerCase();
+  const nextNorm = next.trim().toLowerCase();
+  if (!nextNorm || currentNorm === nextNorm) return false;
+  // Respect an already-terminal local status (admin cancellation, prior delivery/return).
+  if (TERMINAL_COURIER_STATUSES.has(currentNorm)) return false;
+  // A terminal courier truth (Delivered / Returned / Cancelled) always applies.
+  if (TERMINAL_COURIER_STATUSES.has(nextNorm)) return true;
+  // Otherwise only move forward through the pipeline, never backwards.
+  const currentRank = COURIER_STATUS_RANK[currentNorm] ?? 0;
+  const nextRank = COURIER_STATUS_RANK[nextNorm] ?? 0;
+  return nextRank > currentRank;
+};
 
 const isBrokenMnpStatus = (status?: string | null) => {
   const normalized = String(status || "").trim().toLowerCase();
@@ -222,7 +248,7 @@ export const syncShipment = async (req: Request, res: Response, next: NextFuncti
       orderBy: { date: "desc" },
     });
 
-    const localShipments = await Promise.all(
+    const localShipmentResults = await Promise.all(
       localMnpOrders.map(async (order: any) => {
         const trackingNumber = String(order?.trackingNumber || "").trim();
         let tracked: any = null;
@@ -232,14 +258,35 @@ export const syncShipment = async (req: Request, res: Response, next: NextFuncti
           tracked = null;
         }
 
-        return buildMnpLocalShipmentFromOrder(order, {
+        const shipment = buildMnpLocalShipmentFromOrder(order, {
           trackingNumber,
           trackingResult: tracked,
           source: "local-order-tracking",
         });
+
+        return { order, tracked, shipment };
       }),
     );
 
+    // Reflect the freshly tracked M&P status back onto the local order so the
+    // Orders board shows real delivery progress instead of a stale "Booked".
+    let ordersStatusUpdated = 0;
+    await Promise.all(
+      localShipmentResults.map(async ({ order, tracked }) => {
+        const nextStatus = mapMnpStatusToCourierStatus(tracked?.status);
+        if (!nextStatus || !shouldAdvanceCourierStatus(order?.courierStatus, nextStatus)) {
+          return;
+        }
+        try {
+          await updateLocalOrderStatus(order.id, { courierStatus: nextStatus });
+          ordersStatusUpdated += 1;
+        } catch (error) {
+          console.error(`Failed to update courier status for order ${order?.id}:`, error);
+        }
+      }),
+    );
+
+    const localShipments = localShipmentResults.map((result) => result.shipment);
     sourceShipments.push(...localShipments.filter((shipment) => shipment.tracking_number));
     const uniqueShipments = new Map<string, any>();
 
@@ -260,6 +307,7 @@ export const syncShipment = async (req: Request, res: Response, next: NextFuncti
         created: 0,
         updated: 0,
         upserted: 0,
+        ordersUpdated: ordersStatusUpdated,
       });
     }
 
@@ -311,6 +359,7 @@ export const syncShipment = async (req: Request, res: Response, next: NextFuncti
       created,
       updated,
       upserted: trackingNumbers.length,
+      ordersUpdated: ordersStatusUpdated,
     });
   } catch (error) {
     next(error);

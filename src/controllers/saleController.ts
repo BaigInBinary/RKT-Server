@@ -435,7 +435,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
           // Return immediately with updated order
           const updated = await saleService.getSaleById(orderId);
           if (updated) {
-            let customerNotification = { sent: false, reason: "not attempted" };
+            let customerNotification: { sent: boolean; reason?: string } = { sent: false, reason: "not attempted" };
             try {
               customerNotification = await sendOrderBookedEmail({
                 order: updated,
