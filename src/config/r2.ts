@@ -277,7 +277,7 @@ const parseR2ListObjectsXml = (xml: string) => {
       lastModified: extractTagValue(block, "LastModified"),
       etag: extractTagValue(block, "ETag")?.replace(/^"|"$/g, ""),
     } satisfies R2ObjectSummary;
-  }).filter((entry): entry is R2ObjectSummary => !!entry);
+  }).filter((entry): entry is NonNullable<typeof entry> => !!entry);
 
   return {
     contents,

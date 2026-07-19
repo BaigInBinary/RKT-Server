@@ -24,10 +24,15 @@ router.get("/track/:orderId", async (req: Request, res: Response) => {
             return res.status(404).json({ error: "Order not found" });
         }
 
-        // 2. If it has a courier tracking number, fetch the status
+        // 2. If it has a courier tracking number, fetch the status. A courier
+        // API outage must not hide the order itself from the customer.
         let courierDetails = null;
         if (order.trackingNumber) {
-            courierDetails = await trackCourierShipment(order.trackingNumber, (order as any).courierProvider);
+            try {
+                courierDetails = await trackCourierShipment(order.trackingNumber, (order as any).courierProvider);
+            } catch (trackingError: any) {
+                console.error(`Courier tracking failed for ${order.trackingNumber}:`, trackingError?.message || trackingError);
+            }
         }
         const courierProvider = (order as any).courierProvider || null;
 

@@ -2,16 +2,25 @@ import { Request, Response, NextFunction } from "express";
 import {
   buildMnpLocalShipmentFromOrder,
   bookMnpShipment,
+  bookMnpBulkShipments,
+  closeMnpShipperAdvice,
   getAllMnpCities,
+  getMnpAdvices,
   getMnpPaymentDetails,
   getMnpPaymentReport,
+  getMnpProofOfDelivery,
   getMnpShipmentByOrderIds,
   getMnpShipmentHistory,
+  getMnpShipperAdvices,
   getMnpTariff,
+  getMnpTicketDetails,
   mapMnpStatusToCourierStatus,
   trackMnpShipment,
+  trackMnpShipmentsBulk,
   upsertMnpLocalShipmentHistory,
+  verifyMnpConnection,
   voidMnpConsignments,
+  type MnpBookingData,
 } from "../services/mnpService";
 import { getSaleById, updateOrderStatus as updateLocalOrderStatus, updateSaleTracking } from "../services/saleService";
 import { sendOrderBookedEmail } from "../services/orderNotificationService";
@@ -120,7 +129,8 @@ const withLocalMnpFallback = (shipment: any, order?: any) => {
 
 export const getCities = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const cities = await getAllMnpCities();
+    const scope = String(req.query.scope || "booking") === "delivery" ? "delivery" : "booking";
+    const cities = await getAllMnpCities(scope);
     res.status(200).json(cities);
   } catch (error) {
     next(error);
@@ -248,14 +258,35 @@ export const syncShipment = async (req: Request, res: Response, next: NextFuncti
       orderBy: { date: "desc" },
     });
 
+    // Track every local order in one Bulk_Consignment_Tracking_New call (max
+    // 200 CNs per request) instead of one CNTracking request per order.
+    const localTrackingNumbers = localMnpOrders
+      .map((order: any) => String(order?.trackingNumber || "").trim())
+      .filter(Boolean);
+    const bulkTracking = await trackMnpShipmentsBulk(localTrackingNumbers);
+    const trackedByCn = new Map(
+      (bulkTracking.shipments || []).map((entry: any) => [entry.consignmentNumber, entry]),
+    );
+
     const localShipmentResults = await Promise.all(
       localMnpOrders.map(async (order: any) => {
         const trackingNumber = String(order?.trackingNumber || "").trim();
+        const bulkEntry: any = trackingNumber ? trackedByCn.get(trackingNumber) : null;
+
         let tracked: any = null;
-        try {
-          tracked = trackingNumber ? await trackMnpShipment(trackingNumber) : null;
-        } catch (error) {
-          tracked = null;
+        if (bulkEntry) {
+          tracked = {
+            status: bulkEntry.status,
+            tracking_details: bulkEntry.tracking_details,
+            tracking_Details: [bulkEntry.shipment],
+          };
+        } else if (trackingNumber) {
+          // Fall back to single tracking for CNs the bulk endpoint didn't return.
+          try {
+            tracked = await trackMnpShipment(trackingNumber);
+          } catch (error) {
+            tracked = null;
+          }
         }
 
         const shipment = buildMnpLocalShipmentFromOrder(order, {
@@ -521,6 +552,7 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
       fragile,
       service,
       insuranceValue,
+      city,
     } = req.body;
 
     if (!orderId || !weight) {
@@ -538,7 +570,7 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
       customerEmail: order.customerEmail || undefined,
       customerPhone: order.customerPhone || "",
       customerAddress: order.shippingAddress || "",
-      city: order.city || "Karachi",
+      city: (typeof city === "string" && city.trim()) ? city.trim() : (order.city || "Karachi"),
       amount: order.total,
       weight: Number(weight),
       pieces: Number(pieces) || 1,
@@ -610,6 +642,207 @@ export const bookShipment = async (req: Request, res: Response, next: NextFuncti
       status: 0,
       message: result.error || result.message || "M&P API failed to book shipment",
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Applies the local side-effects of a successful M&P booking (tracking number,
+// payment status for bank deposits, shipment history, notification email).
+const applyBookingSuccess = async (
+  order: any,
+  trackNumber: string,
+  bookingData: MnpBookingData,
+) => {
+  const bookingOrderId = order.id;
+  const updatedOrder = await updateSaleTracking(order.id, trackNumber, "Booked", bookingOrderId, "mnp");
+  const orderAfterPaymentUpdate =
+    (order.paymentMethod ?? "").trim().toUpperCase() === "BANK_DEPOSIT"
+      ? await updateLocalOrderStatus(order.id, { paymentStatus: "paid" })
+      : updatedOrder;
+
+  await upsertMnpLocalShipmentHistory(orderAfterPaymentUpdate, {
+    trackingNumber: trackNumber,
+    bookingOrderId,
+    weightGrams: Number(bookingData.weight),
+    status: "Booked",
+    bookingData,
+    source: "mnp-bulk-booking",
+  });
+
+  try {
+    await sendOrderBookedEmail({
+      order: orderAfterPaymentUpdate,
+      trackingNumber: trackNumber,
+      bookingOrderId,
+      courierName: "M&P",
+    });
+  } catch (mailError: any) {
+    console.error(`Booked notification email failed for order ${order.id}:`, mailError?.message || mailError);
+  }
+};
+
+export const bookBulkShipments = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const requestedOrders = Array.isArray(req.body?.orders) ? req.body.orders : [];
+    if (requestedOrders.length === 0) {
+      return res.status(400).json({ status: 0, message: "orders (array of {orderId, weight, ...}) is required" });
+    }
+
+    const bookingDataList: MnpBookingData[] = [];
+    const skipped: Array<{ orderId: string; message: string }> = [];
+    const orderById = new Map<string, any>();
+
+    for (const requested of requestedOrders) {
+      const orderId = String(requested?.orderId || "").trim();
+      if (!orderId) continue;
+
+      const order = await getSaleById(orderId);
+      if (!order) {
+        skipped.push({ orderId, message: "Order not found" });
+        continue;
+      }
+      if (order.trackingNumber) {
+        skipped.push({ orderId, message: `Already booked (CN ${order.trackingNumber})` });
+        continue;
+      }
+
+      const fallbackWeight = Array.isArray(order.items)
+        ? order.items.reduce((sum: number, item: any) => sum + (Number(item?.quantity || 0) * 500), 0)
+        : 0;
+      const fallbackPieces = Array.isArray(order.items)
+        ? order.items.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0)
+        : 0;
+
+      orderById.set(order.id, order);
+      bookingDataList.push({
+        orderId: order.id,
+        customerName: order.customerName || "Customer",
+        customerEmail: order.customerEmail || undefined,
+        customerPhone: order.customerPhone || "",
+        customerAddress: order.shippingAddress || "",
+        city: requested?.city || order.city || "Karachi",
+        amount: order.total,
+        weight: Number(requested?.weight) || fallbackWeight || 500,
+        pieces: Number(requested?.pieces) || fallbackPieces || 1,
+        productDetails: String(
+          requested?.productDetails ||
+          (Array.isArray(order.items)
+            ? order.items.map((item: any) => item?.name).filter(Boolean).join(", ")
+            : "Order items"),
+        ).slice(0, 50),
+        remarks: typeof requested?.remarks === "string" ? requested.remarks.slice(0, 400) : undefined,
+        fragile: typeof requested?.fragile === "string" ? requested.fragile : undefined,
+        service: typeof requested?.service === "string" && requested.service.trim()
+          ? requested.service.trim().slice(0, 50)
+          : undefined,
+        insuranceValue: requested?.insuranceValue === undefined || requested?.insuranceValue === null
+          ? "0"
+          : String(requested.insuranceValue).replace(/,/g, "").slice(0, 20),
+      });
+    }
+
+    if (bookingDataList.length === 0) {
+      return res.status(400).json({ status: 0, message: "No bookable orders in the request", skipped });
+    }
+
+    const result = await bookMnpBulkShipments(bookingDataList);
+    const results = Array.isArray(result.results) ? result.results : [];
+
+    for (const entry of results) {
+      if (!entry.success || !entry.trackNumber) continue;
+      const order = orderById.get(entry.orderId);
+      const bookingData = bookingDataList.find((data) => data.orderId === entry.orderId);
+      if (!order || !bookingData) continue;
+      try {
+        await applyBookingSuccess(order, entry.trackNumber, bookingData);
+      } catch (error: any) {
+        entry.message = `Booked as ${entry.trackNumber} but local update failed: ${error?.message || error}`;
+      }
+    }
+
+    const booked = results.filter((entry: any) => entry.success).length;
+    res.status(result.status === 1 || booked > 0 ? 200 : 400).json({
+      status: result.status === 1 || booked > 0 ? 1 : 0,
+      message: result.error || result.message || `Booked ${booked} of ${bookingDataList.length} order(s)`,
+      booked,
+      results,
+      skipped,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getProofOfDelivery = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const trackingNumber = String(req.params.trackingNumber || "").trim();
+    if (!trackingNumber) {
+      return res.status(400).json({ status: 0, message: "Tracking number is required" });
+    }
+    const result = await getMnpProofOfDelivery(trackingNumber);
+    res.status(result.status === 1 ? 200 : 400).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listShipperAdvices = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const scope = String(req.query.scope || "active") === "closed" ? "closed" : "active";
+    const result = await getMnpShipperAdvices({
+      scope,
+      cn: req.query.cn ? String(req.query.cn) : undefined,
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+    });
+    res.status(result.status === 1 ? 200 : 400).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const respondToShipperAdvice = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { consignment, adviceOption, reattempt, remarks, consigneeAddress, consigneePhone } = req.body || {};
+    const result = await closeMnpShipperAdvice({
+      consignment: String(consignment || ""),
+      adviceOption: Number(adviceOption) as 1 | 2 | 3,
+      reattempt: reattempt ? (Number(reattempt) as 1 | 2 | 3 | 4) : undefined,
+      remarks: typeof remarks === "string" ? remarks : undefined,
+      consigneeAddress: typeof consigneeAddress === "string" ? consigneeAddress : undefined,
+      consigneePhone: typeof consigneePhone === "string" ? consigneePhone : undefined,
+    });
+    res.status(result.status === 1 ? 200 : 400).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAdviceTicketDetails = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const cn = String(req.params.cn || "").trim();
+    if (!cn) {
+      return res.status(400).json({ status: 0, message: "Consignment number is required" });
+    }
+    const [tickets, advices] = await Promise.all([
+      getMnpTicketDetails(cn),
+      getMnpAdvices(cn),
+    ]);
+    res.status(200).json({
+      status: 1,
+      tickets: tickets.tickets || [],
+      advices: advices.advices || [],
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyConnection = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await verifyMnpConnection();
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }
