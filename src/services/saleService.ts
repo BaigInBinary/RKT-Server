@@ -73,6 +73,16 @@ export interface OrderAnalytics {
     chequeDate: string | null;
     amount: number;
   }[];
+  /** What the goods in the revenue-eligible orders cost you to buy. */
+  costOfGoods: number;
+  /** Revenue minus cost of goods, before courier deductions. */
+  grossProfit: number;
+  /** Money the couriers kept out of COD they collected (delivery invoices + tax). */
+  courierCharges: number;
+  /** Gross profit minus courier charges — what the online store actually earned. */
+  netProfit: number;
+  /** Order lines whose item no longer exists, so their cost could not be counted. */
+  ordersMissingCost: number;
   orders: Sale[];
 }
 
@@ -360,7 +370,11 @@ const parseSignedAmount = (value: string): number | null => {
   return isNegative ? -parsed : parsed;
 };
 
-const extractNetPayableAmountFromHtml = (htmlContent?: string | null): number | null => {
+/** Reads the amount printed after a labelled total in a cheque/payment report. */
+const extractLabelledAmountFromHtml = (
+  htmlContent: string | null | undefined,
+  marker: RegExp,
+): number | null => {
   if (!htmlContent || typeof htmlContent !== "string") {
     return null;
   }
@@ -369,7 +383,6 @@ const extractNetPayableAmountFromHtml = (htmlContent?: string | null): number | 
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/\s+/g, " ");
-  const marker = /net\s*payable\s*amount/i;
   const markerMatch = marker.exec(plainText);
   if (!markerMatch) {
     return null;
@@ -385,6 +398,12 @@ const extractNetPayableAmountFromHtml = (htmlContent?: string | null): number | 
   const parsed = parseSignedAmount(amountTokenMatch[0]);
   return parsed === null ? null : Math.abs(parsed);
 };
+
+const extractNetPayableAmountFromHtml = (htmlContent?: string | null): number | null =>
+  extractLabelledAmountFromHtml(htmlContent, /net\s*payable\s*amount/i);
+
+const extractGrossPayableAmountFromHtml = (htmlContent?: string | null): number | null =>
+  extractLabelledAmountFromHtml(htmlContent, /gross\s*payable\s*amount/i);
 
 const isTxnRefUniqueConstraintError = (error: unknown): boolean => {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
@@ -935,12 +954,104 @@ export const getOrderAnalytics = async (
 
   const totalRevenue = revenueEligibleOrders.reduce((sum, order) => sum + order.total, 0);
 
+  // Cost of goods. Sale lines record what the customer paid, not what we paid, so
+  // the buying price is read from the catalogue. Items deleted since the sale can
+  // no longer be costed — those lines are counted so the UI can say so rather than
+  // quietly overstating profit.
+  const soldItemIds = Array.from(
+    new Set(
+      revenueEligibleOrders.flatMap((order) =>
+        (order.items || [])
+          .map((item) => String((item as { itemId?: string }).itemId || "").trim())
+          .filter(Boolean),
+      ),
+    ),
+  );
+
+  const costPriceByItemId = new Map<string, number>();
+  if (soldItemIds.length > 0) {
+    const catalogueItems = await prisma.item.findMany({
+      where: { id: { in: soldItemIds } },
+      select: { id: true, costPrice: true },
+    });
+    for (const item of catalogueItems) {
+      costPriceByItemId.set(item.id, item.costPrice ?? 0);
+    }
+  }
+
+  let costOfGoods = 0;
+  let ordersMissingCost = 0;
+  for (const order of revenueEligibleOrders) {
+    let orderHasUncostedLine = false;
+    for (const line of order.items || []) {
+      const itemId = String((line as { itemId?: string }).itemId || "").trim();
+      const costPrice = itemId ? costPriceByItemId.get(itemId) : undefined;
+      if (costPrice === undefined) {
+        orderHasUncostedLine = true;
+        continue;
+      }
+      costOfGoods += costPrice * (line.quantity ?? 0);
+    }
+    if (orderHasUncostedLine) {
+      ordersMissingCost += 1;
+    }
+  }
+
+  // What the couriers kept out of the COD they collected. Leopards prints a gross
+  // and a net payable on each cheque; M&P's IBFT report gives the same gap as
+  // RR Amount minus Net Payable.
+  const leopardsCharges = (chequeRecords as Array<{
+    htmlContent: string;
+    netPayableAmount: number | null;
+    paymentDateValue: Date | null;
+    paymentDate: string | null;
+  }>).reduce((sum, record) => {
+    const chequeDateValue = record.paymentDateValue ?? parseChequePaymentDate(record.paymentDate);
+    if (!chequeDateValue) return sum;
+    if (startDate && chequeDateValue < startDate) return sum;
+    if (endDate && chequeDateValue > endDate) return sum;
+
+    const gross = extractGrossPayableAmountFromHtml(record.htmlContent);
+    const net =
+      extractNetPayableAmountFromHtml(record.htmlContent) ??
+      (typeof record.netPayableAmount === "number" ? record.netPayableAmount : null);
+
+    if (gross === null || net === null) return sum;
+    return sum + Math.max(0, gross - net);
+  }, 0);
+
+  const mnpPaymentEntries = await (prisma as any).mnpPaymentEntry.findMany({
+    where:
+      startDate || endDate
+        ? {
+            paidOnValue: {
+              ...(startDate ? { gte: startDate } : {}),
+              ...(endDate ? { lte: endDate } : {}),
+            },
+          }
+        : {},
+    select: { rrAmount: true, netPayable: true },
+  });
+
+  const mnpCharges = (mnpPaymentEntries as Array<{ rrAmount: number; netPayable: number }>).reduce(
+    (sum, entry) => sum + Math.max(0, (entry.rrAmount || 0) - (entry.netPayable || 0)),
+    0,
+  );
+
+  const courierCharges = leopardsCharges + mnpCharges;
+  const grossProfit = totalRevenue - costOfGoods;
+
   return {
     totalOrders: orders.length,
     deliveredOrders,
     revenueEligibleOrders: revenueEligibleOrders.length,
     totalRevenue,
     chequeRevenue,
+    costOfGoods,
+    grossProfit,
+    courierCharges,
+    netProfit: grossProfit - courierCharges,
+    ordersMissingCost,
     orders,
   };
 };

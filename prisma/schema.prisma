@@ -156,6 +156,50 @@ model ChequeRecord {
   @@index([paymentDateValue])
 }
 
+// A single uploaded M&P IBFT payment report file (xlsx/csv/html export of the
+// Payment_Report). One file holds many payment rows, unlike a Leopards cheque
+// which is one payment per file.
+model MnpPaymentReport {
+  id                 String            @id @default(auto()) @map("_id") @db.ObjectId
+  fileName           String
+  htmlContent        String
+  isHtml             Boolean           @default(false)
+  rowCount           Int               @default(0)
+  totalRrAmount      Float             @default(0)
+  totalInvoiceAmount Float             @default(0)
+  totalIbftFee       Float             @default(0)
+  totalTaxAmount     Float             @default(0)
+  totalNetPayable    Float             @default(0)
+  periodFrom         DateTime?
+  periodTo           DateTime?
+  entries            MnpPaymentEntry[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([periodFrom])
+}
+
+// One payout row inside an uploaded M&P payment report.
+model MnpPaymentEntry {
+  id               String           @id @default(auto()) @map("_id") @db.ObjectId
+  reportId         String           @db.ObjectId
+  report           MnpPaymentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  paymentId        String           @unique
+  paidOn           String?
+  paidOnValue      DateTime?
+  rrAmount         Float            @default(0)
+  invoiceAmount    Float            @default(0)
+  ibftFee          Float            @default(0)
+  taxAmount        Float            @default(0)
+  netPayable       Float            @default(0)
+  instrumentMode   String?
+  instrumentNumber String?
+  createdAt        DateTime         @default(now())
+
+  @@index([paidOnValue])
+  @@index([reportId])
+}
+
 model ShipmentHistory {
   id                   String   @id @default(auto()) @map("_id") @db.ObjectId
   bookingDate          String?
