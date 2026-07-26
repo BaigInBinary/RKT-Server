@@ -22,6 +22,12 @@ import {
   voidMnpConsignments,
   type MnpBookingData,
 } from "../services/mnpService";
+import {
+  analysePaymentRows,
+  extractPaymentIdFromTracking,
+  normalizePaymentRows,
+  type MnpPaymentRowInput,
+} from "../services/mnpPaymentReportService";
 import { getSaleById, updateOrderStatus as updateLocalOrderStatus, updateSaleTracking } from "../services/saleService";
 import { sendOrderBookedEmail } from "../services/orderNotificationService";
 import prisma from "../config/prisma";
@@ -82,6 +88,9 @@ const isBrokenMnpStatus = (status?: string | null) => {
     normalized.includes("internal server error")
   );
 };
+
+// M&P bulk tracking takes 200 CNs per call, so this is 10 calls per sync run.
+const MAX_PAYMENT_SYNC_SHIPMENTS = 2000;
 
 const parseMnpAmount = (value: unknown): number => {
   const parsed = Number(String(value || "").replace(/,/g, "").replace(/[^\d.-]/g, ""));
@@ -523,6 +532,287 @@ export const getPaymentReport = async (req: Request, res: Response, next: NextFu
     const { startDate, endDate } = req.query;
     const result = await getMnpPaymentReport(startDate as string | undefined, endDate as string | undefined);
     res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Saves an uploaded M&P IBFT payment report. The browser does the file parsing
+ * (xlsx/csv/html) and posts both the rendered HTML — kept so the admin can always
+ * re-read the original document — and the structured rows we reconcile against.
+ */
+export const saveMnpPaymentReport = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  try {
+    const { fileName, htmlContent, isHtml, rows } = req.body as {
+      fileName?: string;
+      htmlContent?: string;
+      isHtml?: boolean;
+      rows?: MnpPaymentRowInput[];
+    };
+
+    if (!fileName || !htmlContent) {
+      return res.status(400).json({ message: "fileName and htmlContent are required" });
+    }
+
+    const normalized = normalizePaymentRows(Array.isArray(rows) ? rows : []);
+    if (normalized.length === 0) {
+      return res.status(400).json({
+        message:
+          "No payment rows could be read from this file. Make sure it has a Payment ID column (the M&P IBFT report export).",
+      });
+    }
+
+    const paymentIds = normalized.map((row) => row.paymentId);
+    const existing = await (prisma as any).mnpPaymentEntry.findMany({
+      where: { paymentId: { in: paymentIds } },
+      select: { paymentId: true },
+    });
+
+    if (existing.length > 0) {
+      const duplicates = existing.map((entry: any) => entry.paymentId);
+      return res.status(409).json({
+        message:
+          duplicates.length === normalized.length
+            ? "This report has already been uploaded — every Payment ID in it is already saved."
+            : `Already saved: Payment ID ${duplicates.slice(0, 5).join(", ")}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ""}.`,
+        duplicatePaymentIds: duplicates,
+      });
+    }
+
+    const dates = normalized
+      .map((row) => row.paidOnValue)
+      .filter((value): value is Date => value instanceof Date);
+
+    const totals = normalized.reduce(
+      (acc, row) => ({
+        rrAmount: acc.rrAmount + row.rrAmount,
+        invoiceAmount: acc.invoiceAmount + row.invoiceAmount,
+        ibftFee: acc.ibftFee + row.ibftFee,
+        taxAmount: acc.taxAmount + row.taxAmount,
+        netPayable: acc.netPayable + row.netPayable,
+      }),
+      { rrAmount: 0, invoiceAmount: 0, ibftFee: 0, taxAmount: 0, netPayable: 0 },
+    );
+
+    const report = await (prisma as any).mnpPaymentReport.create({
+      data: {
+        fileName,
+        htmlContent,
+        isHtml: !!isHtml,
+        rowCount: normalized.length,
+        totalRrAmount: totals.rrAmount,
+        totalInvoiceAmount: totals.invoiceAmount,
+        totalIbftFee: totals.ibftFee,
+        totalTaxAmount: totals.taxAmount,
+        totalNetPayable: totals.netPayable,
+        periodFrom: dates.length > 0 ? new Date(Math.min(...dates.map((d) => d.getTime()))) : null,
+        periodTo: dates.length > 0 ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null,
+      },
+    });
+
+    await (prisma as any).mnpPaymentEntry.createMany({
+      data: normalized.map((row) => ({ ...row, reportId: report.id })),
+    });
+
+    res.status(201).json({ ...report, entries: normalized });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getMnpPaymentReports = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reports = await (prisma as any).mnpPaymentReport.findMany({
+      select: {
+        id: true,
+        fileName: true,
+        isHtml: true,
+        rowCount: true,
+        totalRrAmount: true,
+        totalInvoiceAmount: true,
+        totalIbftFee: true,
+        totalTaxAmount: true,
+        totalNetPayable: true,
+        periodFrom: true,
+        periodTo: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.status(200).json(reports);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getMnpPaymentReportById = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const report = await (prisma as any).mnpPaymentReport.findUnique({
+      where: { id },
+      include: { entries: { orderBy: { paidOnValue: "asc" } } },
+    });
+
+    if (!report) {
+      return res.status(404).json({ message: "Payment report not found" });
+    }
+
+    res.status(200).json({ ...report, analysis: analysePaymentRows(report.entries) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteMnpPaymentReport = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const report = await (prisma as any).mnpPaymentReport.findUnique({
+      where: { id },
+      include: { entries: { select: { paymentId: true } } },
+    });
+
+    if (!report) {
+      return res.status(404).json({ message: "Payment report not found" });
+    }
+
+    const paymentIds = report.entries.map((entry: any) => entry.paymentId);
+
+    await (prisma as any).mnpPaymentEntry.deleteMany({ where: { reportId: id } });
+    await (prisma as any).mnpPaymentReport.delete({ where: { id } });
+
+    // Unlink any shipments this report had settled, so they show as unpaid again.
+    let clearedShipments = 0;
+    const shipmentHistoryModel = (prisma as any).shipmentHistory;
+    if (shipmentHistoryModel && paymentIds.length > 0) {
+      const result = await shipmentHistoryModel.updateMany({
+        where: { courierProvider: "mnp", chequeRef: { in: paymentIds } },
+        data: { chequeRef: null, chequeDate: null },
+      });
+      clearedShipments = result.count;
+    }
+
+    res.status(200).json({
+      message: `Report deleted. ${clearedShipments} shipment(s) were unlinked from its payments.`,
+      clearedShipments,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Links M&P shipments to the payouts in a saved IBFT report.
+ *
+ * The report itself carries no CN numbers, so the join runs the other way: we take
+ * the M&P shipments that are still unsettled, ask M&P's tracking API which PaymentID
+ * each one was paid under, and stamp the ones whose PaymentID appears in this report.
+ */
+export const syncMnpPaymentReportToShipments = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<any> => {
+  try {
+    const shipmentHistoryModel = (prisma as any).shipmentHistory;
+    if (!shipmentHistoryModel) {
+      return res.status(500).json({ message: "ShipmentHistory model is not available." });
+    }
+
+    const reportId = req.params.id || req.body?.reportId;
+    if (!reportId) {
+      return res.status(400).json({ message: "reportId is required" });
+    }
+
+    const report = await (prisma as any).mnpPaymentReport.findUnique({
+      where: { id: reportId },
+      include: { entries: true },
+    });
+
+    if (!report) {
+      return res.status(404).json({ message: "Payment report not found" });
+    }
+
+    const paymentsById = new Map<string, any>(
+      report.entries.map((entry: any) => [entry.paymentId, entry]),
+    );
+
+    // Only shipments that could still be settled by this report — already-linked ones
+    // are left alone so a re-sync never rewrites an earlier report's stamp. Newest
+    // first, and capped: each batch of 200 CNs is one M&P tracking call, and a first
+    // run against years of history would otherwise fire them all at once.
+    const candidates = await shipmentHistoryModel.findMany({
+      where: {
+        courierProvider: "mnp",
+        OR: [{ chequeRef: null }, { chequeRef: "" }],
+      },
+      select: { trackingNumber: true },
+      orderBy: { updatedAt: "desc" },
+      take: MAX_PAYMENT_SYNC_SHIPMENTS + 1,
+    });
+
+    const allTrackingNumbers = candidates
+      .map((shipment: any) => String(shipment.trackingNumber || "").trim())
+      .filter((value: string) => value && !value.startsWith("MNP-"));
+
+    const trackingNumbers = allTrackingNumbers.slice(0, MAX_PAYMENT_SYNC_SHIPMENTS);
+    const skippedShipments = allTrackingNumbers.length - trackingNumbers.length;
+
+    if (trackingNumbers.length === 0) {
+      return res.status(200).json({
+        message: "No unlinked M&P shipments to check. Sync shipments first, then try again.",
+        matched: 0,
+        checked: 0,
+        totalPayments: report.entries.length,
+        matchedShipments: [],
+      });
+    }
+
+    const tracked = await trackMnpShipmentsBulk(trackingNumbers);
+    if (tracked.status !== 1) {
+      return res.status(502).json({
+        message: (tracked as any).error || "M&P tracking is unavailable, so payments could not be matched.",
+      });
+    }
+
+    const matches: Array<{ trackingNumber: string; paymentId: string; paidOn: string | null }> = [];
+    for (const entry of tracked.shipments) {
+      const trackingNumber = String(entry?.consignmentNumber || "").trim();
+      const paymentId = extractPaymentIdFromTracking(entry?.shipment);
+      if (!trackingNumber || !paymentId) continue;
+
+      const payment = paymentsById.get(paymentId);
+      if (!payment) continue;
+
+      matches.push({ trackingNumber, paymentId, paidOn: payment.paidOn ?? null });
+    }
+
+    await Promise.all(
+      matches.map((match) =>
+        shipmentHistoryModel.updateMany({
+          where: { trackingNumber: match.trackingNumber, courierProvider: "mnp" },
+          data: { chequeRef: match.paymentId, chequeDate: match.paidOn },
+        }),
+      ),
+    );
+
+    const skippedNote =
+      skippedShipments > 0
+        ? ` ${skippedShipments} older unlinked shipment(s) were not checked this run — sync again to continue.`
+        : "";
+
+    res.status(200).json({
+      message:
+        (matches.length > 0
+          ? `Linked ${matches.length} shipment(s) to ${new Set(matches.map((m) => m.paymentId)).size} payment(s) in this report.`
+          : "None of the unlinked shipments were paid under a Payment ID from this report.") + skippedNote,
+      matched: matches.length,
+      checked: trackingNumbers.length,
+      skipped: skippedShipments,
+      totalPayments: report.entries.length,
+      matchedShipments: matches,
+    });
   } catch (error) {
     next(error);
   }
