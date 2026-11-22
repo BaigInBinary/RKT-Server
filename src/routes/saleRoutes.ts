@@ -1,12 +1,14 @@
 import express, { type Router } from 'express';
 import * as saleController from '../controllers/saleController';
 import { imageUpload } from "../middlewares/uploadMiddleware";
-import { authenticate, authorizeAccountTypes, authorizeRoles } from "../middlewares/authMiddleware";
+import { authenticate, authorizeAccountTypes, authorizeRoles, optionalAuthenticate } from "../middlewares/authMiddleware";
 
 const router: Router = express.Router();
 
+// Open to the storefront checkout; an admin-portal token marks an in-store sale.
 router.post(
   '/',
+  optionalAuthenticate,
   saleController.createSale,
 );
 

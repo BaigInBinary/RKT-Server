@@ -39,6 +39,22 @@ export const authenticate = (
   next();
 };
 
+// For routes that are open to everyone but behave differently for signed-in
+// users. A missing, invalid, expired or inactive token is not an error here:
+// the request simply continues without `req.authUser`.
+export const optionalAuthenticate = (
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+) => {
+  const token = extractBearerToken(req.header("Authorization"));
+  const payload = token ? verifyAuthToken(token) : null;
+  if (payload && payload.status === "ACTIVE") {
+    req.authUser = payload;
+  }
+  next();
+};
+
 export const authorizeRoles = (...allowedRoles: UserRole[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.authUser) {
