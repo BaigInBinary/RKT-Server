@@ -307,7 +307,9 @@ export const getAllItems = async (query?: AdminItemsQueryInput): Promise<{ data:
   const [data, totalItems] = await Promise.all([
     prisma.item.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      // The id breaks ties so products created at the same moment (bulk imports)
+      // keep one order across pages and are never skipped or repeated.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * limit,
       take: limit,
     }),
