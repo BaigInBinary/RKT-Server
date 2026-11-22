@@ -1,6 +1,6 @@
 import prisma from "../config/prisma";
 import { Discount, DiscountScope, DiscountType, Item, Prisma } from "@prisma/client";
-import { generateItemSlug } from "../utils/slugUtils";
+import { ensureUniqueSlug, generateItemSlug, generateSlug } from "../utils/slugUtils";
 
 export type CreateItemInput = Prisma.ItemCreateInput;
 export type UpdateItemInput = Prisma.ItemUpdateInput;
@@ -1154,22 +1154,44 @@ export const updateItem = async (
   data: UpdateItemInput,
 ): Promise<Item> => {
   const normalizedData = normalizeUpdateSku(data);
-  
-  // If name is being updated and slug is not provided, regenerate slug
-  if (normalizedData.name && !(normalizedData as Record<string, unknown>).slug) {
-    const nameValue = typeof normalizedData.name === "string" 
-      ? normalizedData.name 
-      : (normalizedData.name as Record<string, unknown>)?.set;
-    
-    if (nameValue && typeof nameValue === "string") {
-      const generatedSlug = await generateItemSlug(nameValue, id);
-      if (generatedSlug) {
-        // @ts-ignore - slug field will be available after Prisma migration
-        normalizedData.slug = generatedSlug ? { set: generatedSlug } : undefined;
-      }
-    }
+  const record = normalizedData as Record<string, unknown>;
+
+  const readStringField = (value: unknown) => {
+    const raw =
+      typeof value === "string"
+        ? value
+        : (value as { set?: unknown } | null | undefined)?.set;
+    return typeof raw === "string" ? raw.trim() : "";
+  };
+
+  // The storefront URL is /product/<slug>. Regenerating the slug whenever the
+  // name changed broke every Google listing, backlink and bookmark for that
+  // product (the old URL turned into a "not found" page). So an existing slug
+  // is kept on rename. A slug is only (re)assigned when:
+  //   - the item has none yet: generated from its name, or
+  //   - the caller explicitly sends a different, non-empty slug.
+  // The admin form echoes the current slug (or "") back on every save; that
+  // must never blank or change it.
+  const requestedSlug = generateSlug(readStringField(record.slug));
+  delete record.slug;
+
+  const existing = await prisma.item.findUnique({
+    where: { id },
+    select: { slug: true, name: true },
+  });
+
+  let nextSlug: string | undefined;
+  if (requestedSlug && requestedSlug !== existing?.slug) {
+    nextSlug = await ensureUniqueSlug(requestedSlug, id);
+  } else if (!existing?.slug) {
+    const nameValue = readStringField(normalizedData.name) || existing?.name || "";
+    nextSlug = (await generateItemSlug(nameValue, id)) || undefined;
   }
-  
+
+  if (nextSlug) {
+    record.slug = { set: nextSlug };
+  }
+
   return await prisma.item.update({
     where: { id },
     data: normalizedData,
