@@ -1,6 +1,7 @@
 import prisma from "../config/prisma";
 import { Discount, DiscountScope, DiscountType, Item, Prisma } from "@prisma/client";
 import { ensureUniqueSlug, generateItemSlug, generateSlug } from "../utils/slugUtils";
+import { cleanBarcode, collectRequestedBarcodes, findBarcodeConflict } from "../utils/productCodes";
 
 export type CreateItemInput = Prisma.ItemCreateInput;
 export type UpdateItemInput = Prisma.ItemUpdateInput;
@@ -116,6 +117,46 @@ const normalizeUpdateSku = (data: UpdateItemInput): UpdateItemInput => {
   }
 
   return data;
+};
+
+// Prisma update payloads may wrap a value as { set: value }.
+const unwrapSetValue = (value: unknown): unknown =>
+  value && typeof value === "object" && !Array.isArray(value) && "set" in (value as object)
+    ? (value as { set?: unknown }).set
+    : value;
+
+// Trims the product and variant barcodes in a create/update payload and refuses
+// a barcode that is already on another product, so a scan at the till can only
+// ever mean one product.
+const prepareBarcodes = async (data: Record<string, unknown>, itemId: string | null) => {
+  if ("barcode" in data) {
+    data.barcode = cleanBarcode(unwrapSetValue(data.barcode));
+  }
+
+  const variants = unwrapSetValue(data.variants);
+  if (Array.isArray(variants)) {
+    for (const entry of variants) {
+      if (entry && typeof entry === "object" && "barcode" in entry) {
+        (entry as Record<string, unknown>).barcode = cleanBarcode(
+          (entry as Record<string, unknown>).barcode,
+        );
+      }
+    }
+  }
+
+  const requested = collectRequestedBarcodes(data.barcode, variants);
+  if (requested.length === 0) {
+    return;
+  }
+
+  const otherProducts = await prisma.item.findMany({
+    where: itemId ? { id: { not: itemId } } : undefined,
+    select: { id: true, name: true, sku: true, barcode: true, variants: true },
+  });
+  const conflict = findBarcodeConflict(requested, otherProducts);
+  if (conflict) {
+    throw Object.assign(new Error(conflict), { statusCode: 409 });
+  }
 };
 
 const parsePurchaseRules = (value: unknown): PurchaseRule[] => {
@@ -249,6 +290,7 @@ export const getAllItems = async (query?: AdminItemsQueryInput): Promise<{ data:
       OR: [
         { name: { contains: term, mode: "insensitive" } },
         { sku: { contains: term, mode: "insensitive" } },
+        { barcode: { contains: term, mode: "insensitive" } },
         { category: { contains: term, mode: "insensitive" } },
       ],
     });
@@ -1134,6 +1176,7 @@ export const stripLegacySkuPrefixFromExistingItems = async () => {
 
 export const createItem = async (data: CreateItemInput): Promise<Item> => {
   const normalizedData = normalizeCreateSku(data);
+  await prepareBarcodes(normalizedData as Record<string, unknown>, null);
   
   // Generate slug from name if not provided
   if (normalizedData.name && !(normalizedData as Record<string, unknown>).slug) {
@@ -1155,6 +1198,7 @@ export const updateItem = async (
 ): Promise<Item> => {
   const normalizedData = normalizeUpdateSku(data);
   const record = normalizedData as Record<string, unknown>;
+  await prepareBarcodes(record, id);
 
   const readStringField = (value: unknown) => {
     const raw =

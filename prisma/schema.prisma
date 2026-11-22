@@ -69,6 +69,8 @@ model Item {
   name              String
   slug              String?
   sku               String   @unique
+  /// Barcode printed on the product packaging (EAN/UPC/etc.), read by the till scanner.
+  barcode           String?
   category          String
   subCategoryId     String?  @db.ObjectId
   subCategory       SubCategory? @relation("ItemSubCategory", fields: [subCategoryId], references: [id])
