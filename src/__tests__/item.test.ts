@@ -106,6 +106,7 @@ describe("Item API", () => {
 
   describe("PUT /api/items/:id", () => {
     it("should update an item", async () => {
+      const before = await request(app).get(`/api/items/${createdItemId}`);
       const updatedData = {
         name: "Updated Test Item",
         price: 149.99,
@@ -120,6 +121,20 @@ describe("Item API", () => {
       expect(response.body.name).toBe(updatedData.name);
       expect(response.body.price).toBe(updatedData.price);
       expect(response.body.quantity).toBe(updatedData.quantity);
+      // Renaming must not change the product URL.
+      expect(before.body.slug).toBeTruthy();
+      expect(response.body.slug).toBe(before.body.slug);
+    });
+
+    it("should keep the slug when the admin form echoes an empty slug", async () => {
+      const before = await request(app).get(`/api/items/${createdItemId}`);
+
+      const response = await request(app)
+        .put(`/api/items/${createdItemId}`)
+        .send({ name: "Renamed Again Test Item", slug: "" });
+
+      expect(response.status).toBe(200);
+      expect(response.body.slug).toBe(before.body.slug);
     });
   });
 

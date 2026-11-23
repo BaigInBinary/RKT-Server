@@ -3,3 +3,7 @@ node_modules
 .env
 /dist
 /generated/prisma
+
+# env files (all variants) — keep the committed template
+.env*
+!.env.example

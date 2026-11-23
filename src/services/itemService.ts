@@ -1,6 +1,7 @@
 import prisma from "../config/prisma";
 import { Discount, DiscountScope, DiscountType, Item, Prisma } from "@prisma/client";
-import { generateItemSlug } from "../utils/slugUtils";
+import { ensureUniqueSlug, generateItemSlug, generateSlug } from "../utils/slugUtils";
+import { cleanBarcode, collectRequestedBarcodes, findBarcodeConflict } from "../utils/productCodes";
 
 export type CreateItemInput = Prisma.ItemCreateInput;
 export type UpdateItemInput = Prisma.ItemUpdateInput;
@@ -116,6 +117,46 @@ const normalizeUpdateSku = (data: UpdateItemInput): UpdateItemInput => {
   }
 
   return data;
+};
+
+// Prisma update payloads may wrap a value as { set: value }.
+const unwrapSetValue = (value: unknown): unknown =>
+  value && typeof value === "object" && !Array.isArray(value) && "set" in (value as object)
+    ? (value as { set?: unknown }).set
+    : value;
+
+// Trims the product and variant barcodes in a create/update payload and refuses
+// a barcode that is already on another product, so a scan at the till can only
+// ever mean one product.
+const prepareBarcodes = async (data: Record<string, unknown>, itemId: string | null) => {
+  if ("barcode" in data) {
+    data.barcode = cleanBarcode(unwrapSetValue(data.barcode));
+  }
+
+  const variants = unwrapSetValue(data.variants);
+  if (Array.isArray(variants)) {
+    for (const entry of variants) {
+      if (entry && typeof entry === "object" && "barcode" in entry) {
+        (entry as Record<string, unknown>).barcode = cleanBarcode(
+          (entry as Record<string, unknown>).barcode,
+        );
+      }
+    }
+  }
+
+  const requested = collectRequestedBarcodes(data.barcode, variants);
+  if (requested.length === 0) {
+    return;
+  }
+
+  const otherProducts = await prisma.item.findMany({
+    where: itemId ? { id: { not: itemId } } : undefined,
+    select: { id: true, name: true, sku: true, barcode: true, variants: true },
+  });
+  const conflict = findBarcodeConflict(requested, otherProducts);
+  if (conflict) {
+    throw Object.assign(new Error(conflict), { statusCode: 409 });
+  }
 };
 
 const parsePurchaseRules = (value: unknown): PurchaseRule[] => {
@@ -249,6 +290,7 @@ export const getAllItems = async (query?: AdminItemsQueryInput): Promise<{ data:
       OR: [
         { name: { contains: term, mode: "insensitive" } },
         { sku: { contains: term, mode: "insensitive" } },
+        { barcode: { contains: term, mode: "insensitive" } },
         { category: { contains: term, mode: "insensitive" } },
       ],
     });
@@ -265,7 +307,9 @@ export const getAllItems = async (query?: AdminItemsQueryInput): Promise<{ data:
   const [data, totalItems] = await Promise.all([
     prisma.item.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      // The id breaks ties so products created at the same moment (bulk imports)
+      // keep one order across pages and are never skipped or repeated.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * limit,
       take: limit,
     }),
@@ -1134,6 +1178,7 @@ export const stripLegacySkuPrefixFromExistingItems = async () => {
 
 export const createItem = async (data: CreateItemInput): Promise<Item> => {
   const normalizedData = normalizeCreateSku(data);
+  await prepareBarcodes(normalizedData as Record<string, unknown>, null);
   
   // Generate slug from name if not provided
   if (normalizedData.name && !(normalizedData as Record<string, unknown>).slug) {
@@ -1154,22 +1199,45 @@ export const updateItem = async (
   data: UpdateItemInput,
 ): Promise<Item> => {
   const normalizedData = normalizeUpdateSku(data);
-  
-  // If name is being updated and slug is not provided, regenerate slug
-  if (normalizedData.name && !(normalizedData as Record<string, unknown>).slug) {
-    const nameValue = typeof normalizedData.name === "string" 
-      ? normalizedData.name 
-      : (normalizedData.name as Record<string, unknown>)?.set;
-    
-    if (nameValue && typeof nameValue === "string") {
-      const generatedSlug = await generateItemSlug(nameValue, id);
-      if (generatedSlug) {
-        // @ts-ignore - slug field will be available after Prisma migration
-        normalizedData.slug = generatedSlug ? { set: generatedSlug } : undefined;
-      }
-    }
+  const record = normalizedData as Record<string, unknown>;
+  await prepareBarcodes(record, id);
+
+  const readStringField = (value: unknown) => {
+    const raw =
+      typeof value === "string"
+        ? value
+        : (value as { set?: unknown } | null | undefined)?.set;
+    return typeof raw === "string" ? raw.trim() : "";
+  };
+
+  // The storefront URL is /product/<slug>. Regenerating the slug whenever the
+  // name changed broke every Google listing, backlink and bookmark for that
+  // product (the old URL turned into a "not found" page). So an existing slug
+  // is kept on rename. A slug is only (re)assigned when:
+  //   - the item has none yet: generated from its name, or
+  //   - the caller explicitly sends a different, non-empty slug.
+  // The admin form echoes the current slug (or "") back on every save; that
+  // must never blank or change it.
+  const requestedSlug = generateSlug(readStringField(record.slug));
+  delete record.slug;
+
+  const existing = await prisma.item.findUnique({
+    where: { id },
+    select: { slug: true, name: true },
+  });
+
+  let nextSlug: string | undefined;
+  if (requestedSlug && requestedSlug !== existing?.slug) {
+    nextSlug = await ensureUniqueSlug(requestedSlug, id);
+  } else if (!existing?.slug) {
+    const nameValue = readStringField(normalizedData.name) || existing?.name || "";
+    nextSlug = (await generateItemSlug(nameValue, id)) || undefined;
   }
-  
+
+  if (nextSlug) {
+    record.slug = { set: nextSlug };
+  }
+
   return await prisma.item.update({
     where: { id },
     data: normalizedData,
