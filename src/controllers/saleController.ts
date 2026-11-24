@@ -15,20 +15,27 @@ export const getSales = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
+/** Set by the admin app when it sends a sale it saved on the device while offline. */
+const OFFLINE_REPLAY_HEADER = "x-offline-replay";
+
 export const createSale = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const validationError = validateSalePayload(req.body, {
-      isAdminPortalRequest: req.authUser?.accountType === "ADMIN_PORTAL",
-    });
+    const isAdminPortalRequest = req.authUser?.accountType === "ADMIN_PORTAL";
+    const validationError = validateSalePayload(req.body, { isAdminPortalRequest });
     if (validationError) {
       return res.status(400).json({ success: false, message: validationError });
     }
 
-    const sale = await saleService.createSale(req.body);
-    
+    // Only the admin app gets an existing sale back for a repeated txnRefNo, so a
+    // public request can't read someone else's order by guessing its reference.
+    const { sale, created, stockShortfalls } = await saleService.createSale(req.body, {
+      reuseExistingSale: isAdminPortalRequest,
+      allowShortStock: isAdminPortalRequest && req.get(OFFLINE_REPLAY_HEADER) === "1",
+    });
 
-
-    res.status(201).json(sale);
+    res
+      .status(created ? 201 : 200)
+      .json(stockShortfalls.length > 0 ? { ...sale, stockShortfalls } : sale);
   } catch (error) {
     next(error);
   }

@@ -1,5 +1,11 @@
 import prisma from "../config/prisma";
 import { Prisma, Sale } from "@prisma/client";
+import {
+  describeStockShortfalls,
+  groupSaleLinesByItem,
+  planStockDeduction,
+  type StockShortfall,
+} from "../utils/saleStock";
 
 export interface SaleItemInput {
   itemId: string;
@@ -473,80 +479,145 @@ export const getSaleById = async (id: string): Promise<Sale | null> => {
   });
 };
 
-export const createSale = async (data: CreateSaleInput): Promise<Sale> => {
-  // Use a transaction to ensure both sale creation and stock update succeed
-  return await runTransactionWithRetry(async (tx) => {
-    const saleDate = data.date || new Date();
-    const quantityMap = buildQuantityMap(data.items);
-    const variantDeltas = new Map<string, number>();
-    for (const [key, quantity] of buildVariantQuantityMap(data.items).entries()) {
-      variantDeltas.set(key, -quantity);
-    }
-    let txnRefNo = normalizeTxnRefNo(data.txnRefNo) ?? generateTxnRefNo();
-    let sale: Sale | null = null;
+export type CreateSaleOptions = {
+  /**
+   * When a sale already has this txnRefNo, return it instead of saving the sale
+   * again. The till sends its receipt number as txnRefNo, so a sale sent twice
+   * (a retry, or the offline queue resending one the server already saved) is
+   * stored once.
+   */
+  reuseExistingSale?: boolean;
+  /**
+   * Save the sale even when stock is short, leaving that stock at zero. For till
+   * sales made while offline: the goods have already left the shop.
+   */
+  allowShortStock?: boolean;
+};
 
-    // 1. Create the sale. If txnRefNo collides, regenerate and retry.
-    for (let attempt = 0; attempt < MAX_TXN_REF_RETRIES; attempt += 1) {
-      try {
-        sale = await tx.sale.create({
-          data: {
-            items: data.items,
-            subtotal: data.subtotal,
-            tax: data.tax,
-            discount: data.discount,
-            total: data.total,
-            customerName: data.customerName,
-            customerEmail: data.customerEmail,
-            customerPhone: data.customerPhone,
-            shippingAddress: data.shippingAddress,
-            city: data.city,
-            postalCode: data.postalCode,
-            paymentMethod: data.paymentMethod,
-            paymentStatus: data.paymentStatus,
-            bankReceiptUrl: data.bankReceiptUrl,
-            bankReceiptPublicId: data.bankReceiptPublicId,
-            loanDueDate: data.loanDueDate,
-            deliveryCharge: data.deliveryCharge,
-            txnRefNo,
-            date: saleDate,
-          },
-        });
-        break;
-      } catch (error) {
-        if (!isTxnRefUniqueConstraintError(error)) {
-          throw error;
+export type CreateSaleResult = {
+  sale: Sale;
+  /** False when an existing sale with the same txnRefNo was returned. */
+  created: boolean;
+  /** Lines the stock could not cover (only when allowShortStock is set). */
+  stockShortfalls: StockShortfall[];
+};
+
+const withStatus = (statusCode: number, message: string) =>
+  Object.assign(new Error(message), { statusCode });
+
+const generateUnusedTxnRefNo = async (tx: TransactionClient): Promise<string> => {
+  for (let attempt = 0; attempt < MAX_TXN_REF_RETRIES; attempt += 1) {
+    const candidate = generateTxnRefNo();
+    const taken = await tx.sale.findUnique({ where: { txnRefNo: candidate }, select: { id: true } });
+    if (!taken) {
+      return candidate;
+    }
+  }
+  throw new Error("Failed to create sale due to transaction reference conflict");
+};
+
+/**
+ * Takes a sale's units off product and variant stock. Every product is checked
+ * before anything is written, so a refusal names all the short lines.
+ */
+const deductSaleStock = async (
+  tx: TransactionClient,
+  lines: SaleItemInput[],
+  allowShortStock: boolean,
+): Promise<StockShortfall[]> => {
+  const plans: { itemId: string; plan: ReturnType<typeof planStockDeduction> }[] = [];
+  for (const [itemId, need] of groupSaleLinesByItem(lines).entries()) {
+    const item = await tx.item.findUnique({
+      where: { id: itemId },
+      select: { id: true, name: true, quantity: true, variants: true },
+    });
+    if (!item) {
+      throw withStatus(404, `${need.lineName || "A product in this sale"} is no longer in the inventory.`);
+    }
+    plans.push({ itemId, plan: planStockDeduction(item, need) });
+  }
+
+  const shortfalls = plans.flatMap(({ plan }) => plan.shortfalls);
+  if (shortfalls.length > 0 && !allowShortStock) {
+    throw withStatus(409, describeStockShortfalls(shortfalls));
+  }
+
+  // Reading each product above and writing it here inside one transaction means a
+  // concurrent sale of the same product makes one of them retry with fresh stock.
+  for (const { itemId, plan } of plans) {
+    await tx.item.update({
+      where: { id: itemId },
+      data: {
+        quantity: plan.quantity,
+        ...(plan.variants ? { variants: plan.variants as Prisma.InputJsonValue } : {}),
+      },
+    });
+  }
+  return shortfalls;
+};
+
+export const createSale = async (
+  data: CreateSaleInput,
+  options: CreateSaleOptions = {},
+): Promise<CreateSaleResult> => {
+  const requestedTxnRefNo = normalizeTxnRefNo(data.txnRefNo);
+
+  try {
+    // One transaction: the sale is saved only if its stock is taken too.
+    return await runTransactionWithRetry(async (tx) => {
+      let txnRefNo = requestedTxnRefNo;
+      if (txnRefNo) {
+        const existing = await tx.sale.findUnique({ where: { txnRefNo } });
+        if (existing) {
+          if (options.reuseExistingSale) {
+            return { sale: existing, created: false, stockShortfalls: [] };
+          }
+          txnRefNo = undefined;
         }
-        if (attempt === MAX_TXN_REF_RETRIES - 1) {
-          throw error;
-        }
-        txnRefNo = generateTxnRefNo();
       }
-    }
+      txnRefNo = txnRefNo ?? (await generateUnusedTxnRefNo(tx));
 
-    if (!sale) {
-      throw new Error("Failed to create sale due to transaction reference conflict");
-    }
+      const saleDate = data.date || new Date();
+      const stockShortfalls = await deductSaleStock(tx, data.items, !!options.allowShortStock);
 
-    // 2. Update stock for each item
-    for (const item of data.items) {
-      await tx.item.update({
-        where: { id: item.itemId },
+      const sale = await tx.sale.create({
         data: {
-          quantity: {
-            decrement: item.quantity,
-          },
+          items: data.items,
+          subtotal: data.subtotal,
+          tax: data.tax,
+          discount: data.discount,
+          total: data.total,
+          customerName: data.customerName,
+          customerEmail: data.customerEmail,
+          customerPhone: data.customerPhone,
+          shippingAddress: data.shippingAddress,
+          city: data.city,
+          postalCode: data.postalCode,
+          paymentMethod: data.paymentMethod,
+          paymentStatus: data.paymentStatus,
+          bankReceiptUrl: data.bankReceiptUrl,
+          bankReceiptPublicId: data.bankReceiptPublicId,
+          loanDueDate: data.loanDueDate,
+          deliveryCharge: data.deliveryCharge,
+          txnRefNo,
+          date: saleDate,
         },
       });
+
+      await applyHourlyAndSoldCountDeltas(tx, saleDate, buildQuantityMap(data.items));
+
+      return { sale, created: true, stockShortfalls };
+    }, "createSale");
+  } catch (error) {
+    // Two copies of the same sale arrived together and the other one was saved first.
+    if (options.reuseExistingSale && requestedTxnRefNo && isTxnRefUniqueConstraintError(error)) {
+      const existing = await getSaleByTxnRefNo(requestedTxnRefNo);
+      if (existing) {
+        return { sale: existing, created: false, stockShortfalls: [] };
+      }
     }
-
-    if (variantDeltas.size > 0) {
-      await applyVariantQuantityDeltas(tx, variantDeltas);
-    }
-
-    await applyHourlyAndSoldCountDeltas(tx, saleDate, quantityMap);
-
-    return sale;
-  }, "createSale");
+    throw error;
+  }
 };
 
 export const updateSale = async (
